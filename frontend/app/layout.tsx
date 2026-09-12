@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Aurora AI",
-  description: "Dispensary profitability intelligence",
+  description: "Profitability intelligence for any business",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

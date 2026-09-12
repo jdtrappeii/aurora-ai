@@ -67,7 +67,7 @@ export default function Page() {
                 {data?.store ? ` · ${data.store}` : stores.length > 1 ? " · all stores" : ""}
               </>
             ) : (
-              "Dispensary profitability intelligence"
+              "Profitability intelligence"
             )}
           </div>
         </div>

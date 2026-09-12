@@ -8,7 +8,7 @@ from app.db import init_db
 
 app = FastAPI(
     title="Aurora AI",
-    description="Dispensary profitability intelligence. Code calculates the money; every figure is deterministic.",
+    description="Profitability intelligence for any retail or service business. Code calculates the money; every figure is deterministic.",
     version="0.1.0",
 )
 app.add_middleware(

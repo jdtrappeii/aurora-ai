@@ -1,7 +1,8 @@
-# Aurora AI — Dispensary Profitability Intelligence
+# Aurora AI — Profitability Intelligence Platform
 
-A read-only business intelligence application that sits above the POS, the
-accounting system and the inventory system, and answers one question every week:
+A template for a read-only business intelligence application that sits above
+the POS, the accounting system and the inventory system of **any retail or
+service business** — and answers one question every week:
 
 > Where are we making money, where are we losing money, why is it happening,
 > and what should we change next?
@@ -9,6 +10,22 @@ accounting system and the inventory system, and answers one question every week:
 **Core rule: code calculates the money.** Every figure Aurora shows is a
 deterministic, tested server-side calculation. No AI is wired in yet — V1 exists
 to get the numbers right first (see the build plan in the two source PDFs).
+
+## Use this as a template
+
+Nothing in the engine is industry-specific. It needs sales, sale line items,
+products, an inventory snapshot, expenses, and (optionally) promotions,
+external events and weather. The bundled sample dataset happens to be a
+cannabis dispensary; swap it for a coffee shop, a bike store or a clinic and
+nothing else changes.
+
+1. Click **Use this template** on GitHub, clone your copy.
+2. Export your own CSVs in the formats under *CSV formats* below (or adapt the
+   importers in `backend/app/importers/csv_importer.py` to your POS export).
+3. Tune the named thresholds at the top of `backend/app/analytics/inventory.py`
+   (slow/hot sell-through) and `external.py` (materiality, minimum observations,
+   default event radii) to your category economics.
+4. Run the tests, import, open the dashboard.
 
 ## What is in V1
 
@@ -143,9 +160,10 @@ Prices in `sale_items` are **per unit**; `discount_amount` is derived as
 
 `as_of` defaults to the latest sale date in the database.
 
-## The fake dataset
+## The sample dataset
 
-`scripts/generate_fake_data.py` is seeded and regenerates identically. It plants
+`scripts/generate_fake_data.py` builds a fictional cannabis dispensary (one
+store, 42 SKUs, 13 weeks). It is seeded and regenerates identically. It plants
 patterns the analytics must surface: a dead SKU, two SKUs about to stock out,
 slow-moving high-value flower, a 12% vendor cost increase, an untracked employee
 discount, a payroll spike, a Flower promotion that gives away more margin than
