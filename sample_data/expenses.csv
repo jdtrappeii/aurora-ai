@@ -1,0 +1,85 @@
+expense_id,store,expense_date,category,vendor,description,amount
+X00001,MAIN,2026-06-15,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00002,MAIN,2026-06-15,Utilities,City Power,Electric + water,410.00
+X00003,MAIN,2026-06-15,Marketing,Weedmaps,Listing + ads,525.00
+X00004,MAIN,2026-06-15,Software,POS Vendor,POS subscription,185.00
+X00005,MAIN,2026-06-15,Security,SafeGuard,Guard + monitoring,900.00
+X00006,MAIN,2026-06-15,Supplies,Glassworks Supply,"Bags, exit packaging",140.00
+X00007,MAIN,2026-06-22,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00008,MAIN,2026-06-22,Utilities,City Power,Electric + water,410.00
+X00009,MAIN,2026-06-22,Marketing,Weedmaps,Listing + ads,525.00
+X00010,MAIN,2026-06-22,Software,POS Vendor,POS subscription,185.00
+X00011,MAIN,2026-06-22,Security,SafeGuard,Guard + monitoring,900.00
+X00012,MAIN,2026-06-22,Supplies,Glassworks Supply,"Bags, exit packaging",210.00
+X00013,MAIN,2026-06-26,Payroll,Gusto,Biweekly payroll,11800.00
+X00014,MAIN,2026-06-29,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00015,MAIN,2026-06-29,Utilities,City Power,Electric + water,470.00
+X00016,MAIN,2026-06-29,Marketing,Weedmaps,Listing + ads,525.00
+X00017,MAIN,2026-06-29,Software,POS Vendor,POS subscription,185.00
+X00018,MAIN,2026-06-29,Security,SafeGuard,Guard + monitoring,900.00
+X00019,MAIN,2026-06-29,Supplies,Glassworks Supply,"Bags, exit packaging",140.00
+X00020,MAIN,2026-07-06,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00021,MAIN,2026-07-06,Utilities,City Power,Electric + water,410.00
+X00022,MAIN,2026-07-06,Marketing,Weedmaps,Listing + ads,525.00
+X00023,MAIN,2026-07-06,Software,POS Vendor,POS subscription,185.00
+X00024,MAIN,2026-07-06,Security,SafeGuard,Guard + monitoring,900.00
+X00025,MAIN,2026-07-06,Supplies,Glassworks Supply,"Bags, exit packaging",140.00
+X00026,MAIN,2026-07-10,Payroll,Gusto,Biweekly payroll,11800.00
+X00027,MAIN,2026-07-13,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00028,MAIN,2026-07-13,Utilities,City Power,Electric + water,410.00
+X00029,MAIN,2026-07-13,Marketing,Weedmaps,Listing + ads,525.00
+X00030,MAIN,2026-07-13,Software,POS Vendor,POS subscription,185.00
+X00031,MAIN,2026-07-13,Security,SafeGuard,Guard + monitoring,900.00
+X00032,MAIN,2026-07-13,Supplies,Glassworks Supply,"Bags, exit packaging",140.00
+X00033,MAIN,2026-07-20,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00034,MAIN,2026-07-20,Utilities,City Power,Electric + water,410.00
+X00035,MAIN,2026-07-20,Marketing,Weedmaps,Listing + ads,525.00
+X00036,MAIN,2026-07-20,Software,POS Vendor,POS subscription,185.00
+X00037,MAIN,2026-07-20,Security,SafeGuard,Guard + monitoring,900.00
+X00038,MAIN,2026-07-20,Supplies,Glassworks Supply,"Bags, exit packaging",140.00
+X00039,MAIN,2026-07-24,Payroll,Gusto,Biweekly payroll,11800.00
+X00040,MAIN,2026-07-27,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00041,MAIN,2026-07-27,Utilities,City Power,Electric + water,455.00
+X00042,MAIN,2026-07-27,Marketing,Weedmaps,Listing + ads,525.00
+X00043,MAIN,2026-07-27,Software,POS Vendor,POS subscription,185.00
+X00044,MAIN,2026-07-27,Security,SafeGuard,Guard + monitoring,900.00
+X00045,MAIN,2026-07-27,Supplies,Glassworks Supply,"Bags, exit packaging",210.00
+X00046,MAIN,2026-08-03,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00047,MAIN,2026-08-03,Utilities,City Power,Electric + water,455.00
+X00048,MAIN,2026-08-03,Marketing,Weedmaps,Listing + ads,525.00
+X00049,MAIN,2026-08-03,Software,POS Vendor,POS subscription,185.00
+X00050,MAIN,2026-08-03,Security,SafeGuard,Guard + monitoring,900.00
+X00051,MAIN,2026-08-03,Supplies,Glassworks Supply,"Bags, exit packaging",210.00
+X00052,MAIN,2026-08-07,Payroll,Gusto,Biweekly payroll,11800.00
+X00053,MAIN,2026-08-10,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00054,MAIN,2026-08-10,Utilities,City Power,Electric + water,410.00
+X00055,MAIN,2026-08-10,Marketing,Weedmaps,Listing + ads,525.00
+X00056,MAIN,2026-08-10,Software,POS Vendor,POS subscription,185.00
+X00057,MAIN,2026-08-10,Security,SafeGuard,Guard + monitoring,900.00
+X00058,MAIN,2026-08-10,Supplies,Glassworks Supply,"Bags, exit packaging",140.00
+X00059,MAIN,2026-08-17,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00060,MAIN,2026-08-17,Utilities,City Power,Electric + water,470.00
+X00061,MAIN,2026-08-17,Marketing,Weedmaps,Listing + ads,525.00
+X00062,MAIN,2026-08-17,Software,POS Vendor,POS subscription,185.00
+X00063,MAIN,2026-08-17,Security,SafeGuard,Guard + monitoring,900.00
+X00064,MAIN,2026-08-17,Supplies,Glassworks Supply,"Bags, exit packaging",165.00
+X00065,MAIN,2026-08-21,Payroll,Gusto,Biweekly payroll,11800.00
+X00066,MAIN,2026-08-24,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00067,MAIN,2026-08-24,Utilities,City Power,Electric + water,470.00
+X00068,MAIN,2026-08-24,Marketing,Weedmaps,Listing + ads,525.00
+X00069,MAIN,2026-08-24,Software,POS Vendor,POS subscription,185.00
+X00070,MAIN,2026-08-24,Security,SafeGuard,Guard + monitoring,900.00
+X00071,MAIN,2026-08-24,Supplies,Glassworks Supply,"Bags, exit packaging",140.00
+X00072,MAIN,2026-08-31,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00073,MAIN,2026-08-31,Utilities,City Power,Electric + water,410.00
+X00074,MAIN,2026-08-31,Marketing,Weedmaps,Listing + ads,525.00
+X00075,MAIN,2026-08-31,Software,POS Vendor,POS subscription,185.00
+X00076,MAIN,2026-08-31,Security,SafeGuard,Guard + monitoring,900.00
+X00077,MAIN,2026-08-31,Supplies,Glassworks Supply,"Bags, exit packaging",165.00
+X00078,MAIN,2026-09-04,Payroll,Gusto,Biweekly payroll,14950.00
+X00079,MAIN,2026-09-07,Rent,Harbor Properties,Weekly rent accrual,2650.00
+X00080,MAIN,2026-09-07,Utilities,City Power,Electric + water,410.00
+X00081,MAIN,2026-09-07,Marketing,Weedmaps,Listing + ads,525.00
+X00082,MAIN,2026-09-07,Software,POS Vendor,POS subscription,185.00
+X00083,MAIN,2026-09-07,Security,SafeGuard,Guard + monitoring,900.00
+X00084,MAIN,2026-09-07,Supplies,Glassworks Supply,"Bags, exit packaging",140.00

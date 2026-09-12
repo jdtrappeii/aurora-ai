@@ -1,0 +1,43 @@
+sku,name,category,brand,vendor,unit_cost,retail_price
+FLO-001,Blue Dream 3.5g,Flower,Sunburst Farms,Sunburst Farms,14.00,35.00
+FLO-002,Gelato 3.5g,Flower,Sunburst Farms,Sunburst Farms,16.00,40.00
+FLO-003,Wedding Cake 7g,Flower,Sunburst Farms,Sunburst Farms,28.00,70.00
+FLO-004,Sour Diesel 3.5g,Flower,Northwind Gardens,Northwind Gardens,15.00,38.00
+FLO-005,OG Kush 3.5g,Flower,Northwind Gardens,Northwind Gardens,15.50,38.00
+FLO-006,Purple Punch 14g,Flower,Northwind Gardens,Northwind Gardens,52.00,120.00
+FLO-007,Zkittlez 3.5g,Flower,Valley Craft,Valley Craft,13.00,32.00
+FLO-008,Pineapple Express 3.5g,Flower,Valley Craft,Valley Craft,13.50,32.00
+FLO-009,GMO Cookies 28g,Flower,Valley Craft,Valley Craft,95.00,210.00
+FLO-010,Shake 14g,Flower,Valley Craft,Valley Craft,18.00,45.00
+PRE-001,Blue Dream Pre-Roll 1g,Pre-Rolls,Sunburst Farms,Sunburst Farms,3.20,10.00
+PRE-002,Gelato Pre-Roll 1g,Pre-Rolls,Sunburst Farms,Sunburst Farms,3.40,10.00
+PRE-003,Infused Pre-Roll 1g,Pre-Rolls,Northwind Gardens,Northwind Gardens,6.00,18.00
+PRE-004,Pre-Roll 5-Pack,Pre-Rolls,Valley Craft,Valley Craft,12.00,35.00
+PRE-005,Mini Pre-Roll 0.5g,Pre-Rolls,Valley Craft,Valley Craft,1.80,6.00
+VAP-001,Live Resin Cart 1g,Vapes,Cloudline,Cloudline Distribution,22.00,55.00
+VAP-002,Distillate Cart 1g,Vapes,Cloudline,Cloudline Distribution,14.00,40.00
+VAP-003,Disposable Vape 0.5g,Vapes,Cloudline,Cloudline Distribution,12.00,32.00
+VAP-004,Rosin Cart 0.5g,Vapes,Ember Labs,Ember Labs,24.00,60.00
+VAP-005,Distillate Cart 0.5g,Vapes,Ember Labs,Ember Labs,9.00,28.00
+VAP-006,Battery 510,Vapes,Ember Labs,Ember Labs,4.00,15.00
+EDI-001,Gummies 100mg,Edibles,Honeybee Kitchen,Honeybee Kitchen,6.00,20.00
+EDI-002,Chocolate Bar 100mg,Edibles,Honeybee Kitchen,Honeybee Kitchen,7.00,22.00
+EDI-003,Sour Belts 100mg,Edibles,Honeybee Kitchen,Honeybee Kitchen,6.50,20.00
+EDI-004,Sleep Gummies 100mg,Edibles,Moonrise,Moonrise Wholesale,7.50,25.00
+EDI-005,THC Mints 50mg,Edibles,Moonrise,Moonrise Wholesale,4.00,14.00
+EDI-006,Beverage 10mg,Edibles,Moonrise,Moonrise Wholesale,3.00,8.00
+EDI-007,Cookies 100mg,Edibles,Moonrise,Moonrise Wholesale,6.00,18.00
+CON-001,Live Rosin 1g,Concentrates,Ember Labs,Ember Labs,32.00,75.00
+CON-002,Badder 1g,Concentrates,Ember Labs,Ember Labs,18.00,45.00
+CON-003,Shatter 1g,Concentrates,Cloudline,Cloudline Distribution,12.00,30.00
+CON-004,Diamonds 1g,Concentrates,Cloudline,Cloudline Distribution,22.00,55.00
+TIN-001,Tincture 1000mg,Tinctures,Moonrise,Moonrise Wholesale,18.00,50.00
+TIN-002,CBD:THC Tincture 1:1,Tinctures,Moonrise,Moonrise Wholesale,16.00,45.00
+TOP-001,Relief Balm 200mg,Topicals,Honeybee Kitchen,Honeybee Kitchen,12.00,35.00
+TOP-002,Transdermal Patch,Topicals,Honeybee Kitchen,Honeybee Kitchen,9.00,24.00
+TOP-003,Bath Soak 100mg,Topicals,Honeybee Kitchen,Honeybee Kitchen,8.00,22.00
+ACC-001,Glass Pipe,Accessories,House,Glassworks Supply,5.00,20.00
+ACC-002,Rolling Papers,Accessories,House,Glassworks Supply,0.60,3.00
+ACC-003,Grinder,Accessories,House,Glassworks Supply,6.00,22.00
+ACC-004,Lighter,Accessories,House,Glassworks Supply,0.40,2.00
+ACC-005,Dab Tool,Accessories,House,Glassworks Supply,2.50,12.00
