@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
@@ -15,6 +15,8 @@ from app.analytics.promotions import promotion_results
 from app.db import get_session
 from app.importers.csv_importer import IMPORTERS, ImportError_
 from app.importers.headset import Envelope, import_envelope, reconcile
+from app.integrations import heartbeat as hb
+from app.config import settings
 from app.models import Sale, Store
 
 router = APIRouter(prefix="/api")
@@ -75,6 +77,29 @@ def headset_reconcile(store: str | None = None, session: Session = Depends(get_s
         "mismatches": [r for r in rows if r["coverage"] == "mismatch"],
         "missing": [{"store": r["store"], "date": r["date"], "feed_revenue": r["feed_revenue"]} for r in rows if r["coverage"] == "missing"],
     }
+
+
+@router.post("/heartbeat")
+def heartbeat(
+    store: str, kind: str = Query("power", pattern="^(power|network)$"), token: str | None = None,
+    at: datetime | None = None, session: Session = Depends(get_session),
+):
+    """A device at the store calls this every minute. Token comes from HEARTBEAT_TOKEN
+    (query parameter or X-Heartbeat-Token header); the endpoint is off when it is blank."""
+    if not settings.heartbeat_token:
+        raise HTTPException(503, "heartbeats disabled: set HEARTBEAT_TOKEN")
+    if token != settings.heartbeat_token:
+        raise HTTPException(401, "bad token")
+    st = session.execute(select(Store).where(Store.code == store)).scalar_one_or_none()
+    if st is None:
+        raise HTTPException(404, f"unknown store {store!r}")
+    run = hb.record_ping(session, st, kind, (at or datetime.utcnow()).replace(tzinfo=None), settings.heartbeat_gap_minutes)
+    return {"store": store, "kind": kind, "run_started_at": run.started_at.isoformat(), "last_seen_at": run.last_seen_at.isoformat(), "pings": run.pings}
+
+
+@router.get("/heartbeat/status")
+def heartbeat_status(session: Session = Depends(get_session)):
+    return [s.__dict__ for s in hb.status(session)]
 
 
 @router.get("/metrics/discounts")

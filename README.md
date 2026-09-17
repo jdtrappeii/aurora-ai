@@ -148,6 +148,63 @@ and category / brand / vendor for a SKU come from inventory, so run one sync
 with `--full-catalog` first or a SKU that sold before it was ever in stock reads
 *Uncategorized* until it appears.
 
+## Free external-event stack
+
+Everything the external engine needs, from free sources, in one command:
+
+```bash
+python -m app.cli geocode-stores                              # once: coordinates from addresses (Nominatim)
+python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15
+```
+
+| Source | Event type | Key | What it gives |
+|---|---|---|---|
+| Ticketmaster Discovery API | `local_event` | free, 5,000 calls/day | concerts, pro sports, family shows within `EVENTS_RADIUS_KM` of each store; stadiums / arenas and sports are *major* |
+| SeatGeek Platform API | `local_event` | free | second ticket source; an event at the same venue on the same day as a Ticketmaster one is dropped |
+| FL511 (FDOT) | `traffic` | free | crashes, closures, roadwork within `TRAFFIC_RADIUS_KM`; full closures are *major*; roadwork longer than 14 days is skipped |
+| `holidays` package | `calendar` | none | federal + state holidays (`HOLIDAY_COUNTRY` / `HOLIDAY_SUBDIVISION`) |
+| Cannabis calendar | `calendar` | none | 4/20 and Green Wednesday (*major*), 7/10, Black Friday, New Year's Eve; edit `CANNABIS_CALENDAR` in `integrations/events/calendar.py` |
+| Store heartbeat | `utility`, `connectivity` | your device | a pinger at each store; silences become outage events (below) |
+
+A provider runs only when its key is set, so `events-sync` with no keys still
+writes the calendar. Re-running a range is idempotent. Events dated after today
+are stored as forecasts and feed the 7-day projection; past ones are matched
+against actuals by the evidence engine.
+
+School calendars vary by county and are not machine-readable: put them in
+`external_events.csv` with `event_type=calendar` (one row per break, per store
+or with a county-sized radius) and import as usual.
+
+FL511's endpoint follows the 511 platform several states share
+(`/api/v2/get/event?key=&format=json`); register at fl511.com/developers. The
+client is written from the published platform docs and the test suite exercises
+it against recorded rows, not the live feed.
+
+### Store heartbeats (power and internet outages, to the minute)
+
+Utility outage maps say a county had trouble; a $30 device in the back office
+says *this store* lost power at 2:17pm. Point anything that can make an HTTP
+request (a Raspberry Pi, a smart plug with a webhook, a cron job on the POS
+machine) at:
+
+```
+POST /api/heartbeat?store=HS10136&kind=power&token=<HEARTBEAT_TOKEN>      every minute
+POST /api/heartbeat?store=HS10136&kind=network&token=<HEARTBEAT_TOKEN>
+```
+
+Pings extend a `heartbeat_runs` row (one row per contiguous run, not per ping).
+Then, nightly or on demand:
+
+```bash
+python -m app.cli heartbeat-events            # silences >= HEARTBEAT_GAP_MINUTES -> utility / connectivity events
+python -m app.cli heartbeat-status            # last seen per store and kind
+```
+
+Severity is by duration: under 15 min *minor*, under an hour *moderate*, under
+four hours *major*, else *severe*. A device that was unplugged looks exactly like
+an outage, so treat a lone finding with suspicion; the resilience value on the
+dashboard is what these events are for.
+
 ## Quick start
 
 ### Backend
@@ -192,7 +249,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-55 tests. Every monetary expectation is worked out by hand in the test body.
+68 tests. Every monetary expectation is worked out by hand in the test body.
 
 If you upgrade an existing SQLite database from before the Headset connector,
 delete `backend/aurora.db` and re-import: there are no migrations yet.
@@ -206,7 +263,7 @@ a missing required column fails the file.
 
 | File | Columns |
 |---|---|
-| `stores.csv` | code, name, latitude, longitude, timezone |
+| `stores.csv` | code, name, latitude, longitude, timezone, address (optional; used by `geocode-stores`) |
 | `products.csv` | sku, name, category, brand, vendor, unit_cost, retail_price |
 | `sales.csv` | transaction_id, store, sold_at, employee, customer, status (`completed`/`refunded`/`voided`) |
 | `sale_items.csv` | transaction_id, line_no, sku, quantity, regular_price, sale_price, unit_cost, promotion |
@@ -234,6 +291,8 @@ Prices in `sale_items` are **per unit**; `discount_amount` is derived as
 | `GET /api/metrics/discounts?start=&end=&store=` | Discount-code report (aggregate feed) |
 | `POST /api/import/headset` | Upload one recorded Headset envelope |
 | `GET /api/headset/reconcile?store=` | Product lines vs store-day totals |
+| `POST /api/heartbeat?store=&kind=&token=` | Store device ping (power / network) |
+| `GET /api/heartbeat/status` | Last ping per store and kind |
 | `GET /api/external/events` | Matched events with expected vs actual, evidence, impact |
 | `GET /api/external/weather` | Learned weather effects and daily variance |
 | `GET /api/external/forecast?days=7` | Proactive projection |
@@ -256,7 +315,7 @@ a concert, two holidays, a competitor opening, and a 7-day forecast.
 | Version | Scope |
 |---|---|
 | **V1** | CSV imports, Postgres schema, deterministic analytics, dashboard, external events + weather + baseline + evidence |
-| **V1.5 (this)** | Headset connector: sync, recorded envelopes, exact aggregate totals, store-day reconciliation, discount-code report |
+| **V1.5 (this)** | Headset connector (sync, recorded envelopes, exact aggregate totals, reconciliation, discount-code report); free event stack (Ticketmaster, SeatGeek, FL511, holiday + cannabis calendar, store heartbeats, Nominatim geocoding) |
 | V2 | Claude AI analyst with read-only tools over these endpoints; recommendation engine; evidence-based answers |
 | V3 | Automatic QuickBooks and POS synchronization; live weather / traffic / outage feeds; scheduled nightly Headset sync |
 | V4 | Scheduled weekly owner report, forecasting, vendor intelligence |

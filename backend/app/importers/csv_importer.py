@@ -11,7 +11,7 @@ expenses.csv    expense_id, store, expense_date, category, vendor, description, 
 promotions.csv  name, start_date, end_date, discount_type, discount_value, eligible_skus, eligible_category
 
 External Intelligence Engine:
-stores.csv           code, name, latitude, longitude, timezone
+stores.csv           code, name, latitude, longitude, timezone[, address]
 external_events.csv  event_id, store, event_type, source, latitude, longitude, affected_radius_km,
                      start_time, end_time, severity, description, confidence, source_reference, is_forecast
 weather.csv          store, observed_at, is_forecast, temperature_f, precipitation_in, snowfall_in,
@@ -470,6 +470,8 @@ def import_stores(session: Session, source) -> ImportResult:
                 longitude=_float_or_none(r, "longitude", i),
                 timezone=_clean(r.get("timezone")),
             )
+            if "address" in r:
+                values["address"] = _clean(r.get("address"))
             store = existing.get(code)
             if store is None:
                 store = Store(code=code, **values)

@@ -192,14 +192,21 @@ def import_stores(session: Session, env: Envelope) -> ImportResult:
             continue
         addr = row.get("address") or {}
         tz = timezone_for(_clean(addr.get("state")), _clean(addr.get("postalCode")))
+        address = ", ".join(
+            p for p in (_clean(addr.get("address1")), _clean(addr.get("city")),
+                        " ".join(x for x in (_clean(addr.get("state")), _clean(addr.get("postalCode"))) if x) or None)
+            if p
+        ) or None
         store = session.execute(select(Store).where(Store.code == code)).scalar_one_or_none()
         if store is None:
-            session.add(Store(code=code, name=name, timezone=tz))
+            session.add(Store(code=code, name=name, timezone=tz, address=address))
             res.inserted += 1
         else:
             store.name = name
             if tz and not store.timezone:
                 store.timezone = tz
+            if address and not store.address:
+                store.address = address
             res.updated += 1
     session.commit()
     return res

@@ -34,6 +34,7 @@ class Store(Base):
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)  # one line, for geocoding
 
 
 class Category(Base):
@@ -236,6 +237,31 @@ class DiscountDaily(Base):
         UniqueConstraint("store_id", "sale_date", "discount_name", name="uq_discount_daily"),
         Index("ix_discount_daily_store_date", "store_id", "sale_date"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Store heartbeats (power / network up-time from a device at the store)
+# ---------------------------------------------------------------------------
+
+class HeartbeatRun(Base):
+    """A contiguous stretch of pings from one store's device. A ping inside
+    HEARTBEAT_GAP of last_seen_at extends the run; otherwise the run closes and
+    a new one starts. The silence between two runs is an outage candidate that
+    heartbeat_events() turns into a utility (power) or connectivity (network)
+    external event. One row per run, not per ping, so a minute-level pinger
+    costs a few rows a month per store."""
+
+    __tablename__ = "heartbeat_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    kind: Mapped[str] = mapped_column(String(16))  # power | network
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    pings: Mapped[int] = mapped_column(Integer, default=1)
+
+    store: Mapped[Store] = relationship()
+
+    __table_args__ = (Index("ix_heartbeat_store_kind_seen", "store_id", "kind", "last_seen_at"),)
 
 
 # ---------------------------------------------------------------------------

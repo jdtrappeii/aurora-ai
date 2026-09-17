@@ -15,6 +15,22 @@ class Settings(BaseSettings):
     # Where `headset-sync --record` writes the raw pulls. Git-ignored: it is your data.
     headset_data_dir: str = "./data/headset"
 
+    # Free external-event stack. Each provider is enabled by the presence of its key.
+    ticketmaster_api_key: str = ""          # developer.ticketmaster.com (Discovery API, free)
+    seatgeek_client_id: str = ""            # platform.seatgeek.com (free)
+    seatgeek_client_secret: str = ""
+    fl511_api_key: str = ""                 # fl511.com/developers (FDOT, free)
+    fl511_api_url: str = "https://fl511.com/api/v2/get/event"
+    events_radius_km: float = 15.0          # how far from a store a concert / game still counts
+    traffic_radius_km: float = 5.0          # how far a road event still counts
+    holiday_country: str = "US"
+    holiday_subdivision: str = "FL"
+    # Devices at each store POST /api/heartbeat with this token; blank disables the endpoint.
+    heartbeat_token: str = ""
+    heartbeat_gap_minutes: int = 5
+    # Nominatim (OpenStreetMap) requires a descriptive User-Agent with a contact.
+    geocoder_user_agent: str = "aurora-ai/0.2 (set GEOCODER_USER_AGENT to your contact email)"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

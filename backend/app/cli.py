@@ -10,6 +10,12 @@ Headset connector:
     python -m app.cli headset-sync --start 2026-09-01 --end 2026-09-14 [--stores "FL -"] [--record data/headset]
     python -m app.cli headset-import-dir data/headset          # replay recorded pulls
     python -m app.cli headset-reconcile [--store HS10136]      # product lines vs store-day totals
+
+External events (free stack):
+    python -m app.cli geocode-stores                            # Nominatim, stores with an address and no coordinates
+    python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15   # Ticketmaster / SeatGeek / FL511 / calendar
+    python -m app.cli heartbeat-events [--min-gap 5]           # silences between heartbeat runs -> outage events
+    python -m app.cli heartbeat-status
 """
 import argparse
 import json
@@ -24,6 +30,9 @@ from app.config import settings
 from app.db import SessionLocal, init_db
 from app.importers.csv_importer import import_directory
 from app.importers.headset import import_headset_directory, reconcile
+from app.integrations import heartbeat as hb
+from app.integrations.events.sync import events_sync, upsert_events
+from app.integrations.geocode import geocode_stores
 
 
 def _json(obj) -> str:
@@ -61,6 +70,16 @@ def main(argv: list[str] | None = None) -> int:
     p_hd.add_argument("directory")
     p_hr = sub.add_parser("headset-reconcile")
     p_hr.add_argument("--store", default=None)
+    p_geo = sub.add_parser("geocode-stores", help="fill missing store coordinates from their address (Nominatim)")
+    p_geo.add_argument("--store", action="append", default=None, help="limit to these store codes")
+    p_ev = sub.add_parser("events-sync", help="pull local events, traffic and the calendar into external_events")
+    p_ev.add_argument("--start", required=True)
+    p_ev.add_argument("--end", required=True)
+    p_ev.add_argument("--no-calendar", action="store_true")
+    p_hb = sub.add_parser("heartbeat-events", help="turn heartbeat silences into utility / connectivity events")
+    p_hb.add_argument("--min-gap", type=int, default=None, help="minutes (default HEARTBEAT_GAP_MINUTES)")
+    p_hb.add_argument("--open-after", type=int, default=None, help="also flag stores silent right now for this many minutes")
+    sub.add_parser("heartbeat-status")
     a = ap.parse_args(argv)
 
     init_db()
@@ -82,6 +101,28 @@ def main(argv: list[str] | None = None) -> int:
                       f"(diff {r['revenue_diff']}); gross profit diff {r['gross_profit_diff']}")
             for r in missing:
                 print(f"  MISSING  {r['store']} {r['date']}: feed revenue {r['feed_revenue']}, no product pull")
+        elif a.cmd == "geocode-stores":
+            import httpx
+
+            with httpx.Client(timeout=30) as http:
+                print(_json(geocode_stores(session, http, settings.geocoder_user_agent, only_codes=a.store).to_dict()))
+        elif a.cmd == "events-sync":
+            import httpx
+
+            with httpx.Client(timeout=60) as http:
+                report = events_sync(session, date.fromisoformat(a.start), date.fromisoformat(a.end), http, settings,
+                                     include_calendar=not a.no_calendar)
+            _print_results(report.results)
+            print(_json({k: v for k, v in report.to_dict().items() if k != "results"}))
+        elif a.cmd == "heartbeat-events":
+            drafts = hb.heartbeat_events(session, a.min_gap or settings.heartbeat_gap_minutes, open_gap_after_minutes=a.open_after)
+            r = upsert_events(session, drafts, "heartbeat")
+            _print_results([r])
+            for d in drafts:
+                print(f"  {d.store_code} {d.event_type:12s} {d.severity:8s} {d.start_time:%Y-%m-%d %H:%M} -> {d.end_time:%H:%M}  {d.description}")
+        elif a.cmd == "heartbeat-status":
+            for st in hb.status(session):
+                print(f"{st.store:10s} {st.kind:8s} last seen {st.last_seen_at:%Y-%m-%d %H:%M}  silent {st.minutes_silent} min")
         elif a.cmd == "headset-sync":
             from app.integrations.headset.client import client_from_settings
             from app.integrations.headset.pull import headset_sync
