@@ -91,8 +91,22 @@ export interface Inventory {
   stockout_risk: InventoryItem[];
 }
 
+export interface PromotionFeed {
+  discount_names: string[];
+  applies_to_store: boolean;
+  scheduled_days?: number;
+  window?: { discount_total: number; revenue: number; units: number; transaction_count: number; days_with_data: number; discount_depth: number; discount_per_day: number; revenue_per_day: number; tickets_per_day: number };
+  baseline?: { discount_per_day: number; revenue_per_day: number; tickets_per_day: number; days_with_data: number } | null;
+  vs_baseline?: { discount_per_day_pct: number | null; revenue_per_day_pct: number | null; tickets_per_day_pct: number | null } | null;
+}
+
 export interface Promotion extends Omit<Summary, "period"> {
   promotion: string;
+  weekdays: string | null;
+  store_codes: string[];
+  audience: string | null;
+  source: string;
+  feed: PromotionFeed | null;
   start_date: string;
   end_date: string;
   days: number;
@@ -195,6 +209,59 @@ export interface Discounts {
   codes: DiscountCode[];
 }
 
+export interface MarketWeek {
+  week_ending: string;
+  market_mg_thc: number;
+  market_flower_oz: number;
+  market_dispensaries: number;
+  operators: number;
+  patients: number | null;
+  self_operator: string | null;
+  self_mg_thc: number | null;
+  self_flower_oz: number | null;
+  self_dispensaries: number | null;
+  share_thc_pct: number | null;
+  share_flower_pct: number | null;
+}
+
+export interface Market {
+  as_of: string;
+  current: MarketWeek;
+  previous: MarketWeek | null;
+  weeks_in_average: number;
+  vs_previous_week: {
+    market_mg_thc_pct: number | null;
+    self_mg_thc_pct: number | null;
+    share_thc_bps: number | null;
+    share_flower_bps: number | null;
+    self_dispensaries_delta: number | null;
+    market_dispensaries_delta: number | null;
+    patients_delta: number | null;
+  };
+  vs_four_week_average: { market_mg_thc_pct: number | null; self_mg_thc_pct: number | null; share_thc_bps: number | null; share_flower_bps: number | null };
+  read: string | null;
+}
+
+export interface PressureOperator {
+  operator: string;
+  deals: number;
+  major: number;
+  previous_deals: number;
+  vs_previous_pct: number | null;
+  latest: string | null;
+  sample: string | null;
+}
+
+export interface Pressure {
+  period: PeriodInfo;
+  previous_period: PeriodInfo;
+  total_deals: number;
+  previous_total_deals: number;
+  vs_previous_pct: number | null;
+  operators_active: number;
+  operators: PressureOperator[];
+}
+
 export interface Dashboard {
   as_of: string;
   store: string | null;
@@ -206,6 +273,8 @@ export interface Dashboard {
   inventory: Inventory;
   promotions: Promotion[];
   discounts: Discounts;
+  market: Market | null;
+  pressure: Pressure;
   external: External | null;
 }
 

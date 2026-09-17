@@ -10,6 +10,7 @@ import ProductsTable from "@/components/ProductsTable";
 import InventoryPanel from "@/components/InventoryPanel";
 import PromotionsPanel from "@/components/PromotionsPanel";
 import DiscountsPanel from "@/components/DiscountsPanel";
+import MarketPanel from "@/components/MarketPanel";
 import ExternalPanel from "@/components/ExternalPanel";
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -134,6 +135,12 @@ export default function Page() {
           {data.discounts && (
             <Section title="Discount codes" hint="this week · what each code cost and how deep it cut">
               <DiscountsPanel d={data.discounts} />
+            </Section>
+          )}
+
+          {data.pressure && (
+            <Section title="The market" hint="state weekly report · competitor deals observed">
+              <MarketPanel m={data.market} p={data.pressure} />
             </Section>
           )}
 

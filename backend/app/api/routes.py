@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.analytics.comparisons import weekly_comparison, weekly_trend
 from app.analytics.discounts import discount_report
+from app.analytics.market import competitor_pressure, market_context
 from app.analytics.external import event_findings, proactive_forecast, weather_intelligence
 from app.analytics.financial import financial_summary
 from app.analytics.inventory import inventory_report
@@ -102,6 +103,18 @@ def heartbeat_status(session: Session = Depends(get_session)):
     return [s.__dict__ for s in hb.status(session)]
 
 
+@router.get("/metrics/market")
+def metrics_market(as_of: date | None = None, session: Session = Depends(get_session)):
+    return market_context(session, resolve_as_of(session, as_of))
+
+
+@router.get("/metrics/pressure")
+def metrics_pressure(
+    start: date | None = None, end: date | None = None, as_of: date | None = None, session: Session = Depends(get_session),
+):
+    return competitor_pressure(session, resolve_period(session, start, end, as_of))
+
+
 @router.get("/metrics/discounts")
 def metrics_discounts(
     start: date | None = None, end: date | None = None, as_of: date | None = None, store: str | None = None,
@@ -185,6 +198,8 @@ def dashboard(as_of: date | None = None, store: str | None = None, session: Sess
         "inventory": {**inv, "watch": watch, "stockout_risk": stockout},
         "promotions": promotion_results(session, store),
         "discounts": discount_report(session, current, store, 15),
+        "market": market_context(session, as_of),
+        "pressure": competitor_pressure(session, current),
         "external": _external_block(session, store, as_of, current),
     }
 

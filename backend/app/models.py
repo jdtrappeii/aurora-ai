@@ -94,6 +94,13 @@ class Promotion(Base):
     discount_value: Mapped[Decimal] = mapped_column(Numeric(12, 4))
     eligible_skus: Mapped[str | None] = mapped_column(Text, nullable=True)  # pipe-separated
     eligible_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Recurring / scoped deals (from the promotions workbook):
+    weekdays: Mapped[str | None] = mapped_column(String(16), nullable=True)      # ISO weekday numbers "2" or "1,3,5"; NULL = every day
+    store_codes: Mapped[str | None] = mapped_column(Text, nullable=True)         # pipe-separated store codes; NULL = all stores
+    discount_names: Mapped[str | None] = mapped_column(Text, nullable=True)      # pipe-separated POS discount names as the feed reports them
+    audience: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="manual")
 
 
 class Sale(Base):
@@ -237,6 +244,34 @@ class DiscountDaily(Base):
         UniqueConstraint("store_id", "sale_date", "discount_name", name="uq_discount_daily"),
         Index("ix_discount_daily_store_date", "store_id", "sale_date"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Market context (state regulator weekly report, e.g. Florida OMMU)
+# ---------------------------------------------------------------------------
+
+class MarketWeekly(Base):
+    """One row per week per operator from the state's weekly dispensing report.
+    is_self marks our own rows. Shares are percentages (2.44 = 2.44%)."""
+
+    __tablename__ = "market_weekly"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    week_ending: Mapped[date] = mapped_column(Date)
+    operator: Mapped[str] = mapped_column(String(128))
+    is_self: Mapped[int] = mapped_column(Integer, default=0)
+    is_total: Mapped[int] = mapped_column(Integer, default=0)
+    dispensaries: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mg_thc: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    mg_cbd: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    flower_oz: Mapped[Decimal | None] = mapped_column(Numeric(14, 3), nullable=True)
+    share_thc_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    share_flower_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    share_locations_pct: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    patients: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    report_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    __table_args__ = (UniqueConstraint("week_ending", "operator", name="uq_market_weekly"),)
 
 
 # ---------------------------------------------------------------------------

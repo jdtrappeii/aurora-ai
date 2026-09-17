@@ -200,6 +200,31 @@ severity (Extreme → severe, Severe → major). The same `GEOCODER_USER_AGENT`
 identifies you to NWS. Open-Meteo is free for non-commercial use up to 10,000
 calls a day and asks for attribution.
 
+### Spreadsheets: market report, competitor deals, promotions (no OAuth)
+
+Three living spreadsheets feed Aurora directly from their share links; nothing
+is exported by hand and Aurora never writes to them.
+
+```bash
+python -m app.cli sheets-sync                       # all three, whichever are configured
+python -m app.cli sheets-headers "<share link>"      # see a sheet's headers before mapping columns
+python -m app.cli market --as-of 2026-09-11
+```
+
+| Sheet | Setting | What Aurora takes | Where it lands |
+|---|---|---|---|
+| State weekly dispensing report (Florida OMMU), one row per week per operator | `MARKET_SHEET_ID` + tab | week, operator, dispensing locations, mg THC, flower oz, shares, patients | `market_weekly`; **market context** on the dashboard (market volume vs ours, share in bps, "outpaced / trailed the market by N points"); an operator whose location count rises writes a statewide `competition` event |
+| Competitor deals library (observed deals, any source) | `DEALS_SHEET_ID` + tab | operator, date, offer, type, hook, audience, confidence | `competition` events with severity by depth (40%+ or BOGO → major, 20%+ → moderate) and a **promo pressure** table per operator, this period vs last |
+| Promotions workbook (OneDrive / SharePoint) | `PROMOTIONS_URL` | name, start, end, discount, weekdays, stores, SKUs / category, **POS discount names** | `promotions` with recurrence (`weekdays`) and store scope; the POS names join each promotion to `discount_daily`, so the deal autopsy shows what the feed says it cost per scheduled day |
+
+Google Sheets are read as CSV from the share link (set the sheet to *anyone
+with the link can view*; pick the tab by name or by the `gid` in its URL). A
+OneDrive / SharePoint *anyone with the link* URL is resolved to the file with
+no app registration. Column headers are matched by name with aliases (`Promo`,
+`Start Date`, `Days`, `Stores`, `POS Discount Name`…); an unusual layout gets
+`PROMOTIONS_COLUMN_MAP`. Rows with no name or no start date are reported and
+skipped; the same deal on several rows (one per store) is merged.
+
 ### Store heartbeats (power and internet outages, to the minute)
 
 Utility outage maps say a county had trouble; a $30 device in the back office
@@ -269,7 +294,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-74 tests. Every monetary expectation is worked out by hand in the test body.
+86 tests. Every monetary expectation is worked out by hand in the test body.
 
 If you upgrade an existing SQLite database from before the Headset connector,
 delete `backend/aurora.db` and re-import: there are no migrations yet.
@@ -289,7 +314,7 @@ a missing required column fails the file.
 | `sale_items.csv` | transaction_id, line_no, sku, quantity, regular_price, sale_price, unit_cost, promotion |
 | `inventory.csv` | store, sku, snapshot_date, quantity_on_hand, unit_cost, received_date, last_sale_date |
 | `expenses.csv` | expense_id, store, expense_date, category, vendor, description, amount |
-| `promotions.csv` | name, start_date, end_date, discount_type (`percent`/`amount`/`bogo`), discount_value, eligible_skus (pipe-separated), eligible_category |
+| `promotions.csv` | name, start_date, end_date, discount_type (`percent`/`amount`/`bogo`), discount_value, eligible_skus (pipe-separated), eligible_category (the promotions workbook adds weekdays, stores, POS discount names) |
 | `external_events.csv` | event_id, store, event_type, source, latitude, longitude, affected_radius_km, start_time, end_time, severity, description, confidence, source_reference, is_forecast |
 | `weather.csv` | store, observed_at, is_forecast, temperature_f, precipitation_in, snowfall_in, wind_mph, condition, alert, source |
 
@@ -309,6 +334,8 @@ Prices in `sale_items` are **per unit**; `discount_amount` is derived as
 | `GET /api/metrics/inventory` | Position, aging, sell-through, classification |
 | `GET /api/metrics/promotions` | Deal autopsies |
 | `GET /api/metrics/discounts?start=&end=&store=` | Discount-code report (aggregate feed) |
+| `GET /api/metrics/market?as_of=` | Market context from the state weekly report |
+| `GET /api/metrics/pressure?start=&end=` | Competitor promo pressure per operator |
 | `POST /api/import/headset` | Upload one recorded Headset envelope |
 | `GET /api/headset/reconcile?store=` | Product lines vs store-day totals |
 | `POST /api/heartbeat?store=&kind=&token=` | Store device ping (power / network) |
@@ -335,7 +362,7 @@ a concert, two holidays, a competitor opening, and a 7-day forecast.
 | Version | Scope |
 |---|---|
 | **V1** | CSV imports, Postgres schema, deterministic analytics, dashboard, external events + weather + baseline + evidence |
-| **V1.5 (this)** | Headset connector (sync, recorded envelopes, exact aggregate totals, reconciliation, discount-code report); free event stack (Ticketmaster, SeatGeek, FL511, holiday + cannabis calendar, store heartbeats, Nominatim geocoding); weather from Open-Meteo + NWS alerts |
+| **V1.5 (this)** | Headset connector (sync, recorded envelopes, exact aggregate totals, reconciliation, discount-code report); free event stack (Ticketmaster, SeatGeek, FL511, holiday + cannabis calendar, store heartbeats, Nominatim geocoding); weather from Open-Meteo + NWS alerts; live spreadsheets (state market report, competitor deals, promotions workbook) |
 | V2 | Claude AI analyst with read-only tools over these endpoints; recommendation engine; evidence-based answers |
 | V3 | Automatic QuickBooks and Dutchie POS synchronization; scheduled nightly Headset / weather / events sync |
 | V4 | Scheduled weekly owner report, forecasting, vendor intelligence |

@@ -17,6 +17,11 @@ External events (free stack):
     python -m app.cli heartbeat-events [--min-gap 5]           # silences between heartbeat runs -> outage events
     python -m app.cli heartbeat-status
     python -m app.cli weather-sync --start 2026-06-01 --end 2026-10-01 [--store HS10136] [--no-alerts]
+
+Spreadsheets (OMMU market dashboard, competitor deals, promotions workbook):
+    python -m app.cli sheets-sync [--only market|deals|promotions]
+    python -m app.cli sheets-headers <share link or path> [--tab NAME]   # to configure PROMOTIONS_COLUMN_MAP
+    python -m app.cli market [--as-of 2026-09-11]
 """
 import argparse
 import json
@@ -35,6 +40,8 @@ from app.integrations import heartbeat as hb
 from app.integrations.events.sync import events_sync, upsert_events
 from app.integrations.geocode import geocode_stores
 from app.integrations.weather import weather_sync
+from app.integrations.sheets_sync import sheets_sync, show_headers
+from app.analytics.market import competitor_pressure, market_context
 
 
 def _json(obj) -> str:
@@ -54,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("init-db")
     p_imp = sub.add_parser("import-dir")
     p_imp.add_argument("directory")
-    for name in ("weekly", "external", "discounts"):
+    for name in ("weekly", "external", "discounts", "market"):
         p = sub.add_parser(name)
         p.add_argument("--as-of", default=None)
         p.add_argument("--store", default=None)
@@ -87,6 +94,11 @@ def main(argv: list[str] | None = None) -> int:
     p_wx.add_argument("--end", required=True)
     p_wx.add_argument("--store", action="append", default=None)
     p_wx.add_argument("--no-alerts", action="store_true")
+    p_ss = sub.add_parser("sheets-sync", help="read the market, deals and promotions spreadsheets")
+    p_ss.add_argument("--only", action="append", choices=["market", "deals", "promotions"], default=None)
+    p_sh = sub.add_parser("sheets-headers", help="show a spreadsheet's headers and first rows")
+    p_sh.add_argument("location")
+    p_sh.add_argument("--tab", default=None)
     a = ap.parse_args(argv)
 
     init_db()
@@ -127,6 +139,18 @@ def main(argv: list[str] | None = None) -> int:
             _print_results([r])
             for d in drafts:
                 print(f"  {d.store_code} {d.event_type:12s} {d.severity:8s} {d.start_time:%Y-%m-%d %H:%M} -> {d.end_time:%H:%M}  {d.description}")
+        elif a.cmd == "sheets-sync":
+            import httpx
+
+            with httpx.Client(timeout=60) as http:
+                report = sheets_sync(session, http, settings, set(a.only) if a.only else None)
+            _print_results(report.results)
+            print(_json({k: v for k, v in report.to_dict().items() if k != "results"}))
+        elif a.cmd == "sheets-headers":
+            import httpx
+
+            with httpx.Client(timeout=60) as http:
+                print(_json(show_headers(http, a.location, a.tab)))
         elif a.cmd == "weather-sync":
             import httpx
 
@@ -162,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(_json(weekly_comparison(session, as_of, a.store)))
             elif a.cmd == "discounts":
                 print(_json(discount_report(session, week_containing(as_of), a.store)))
+            elif a.cmd == "market":
+                print(_json({"market": market_context(session, as_of), "pressure": competitor_pressure(session, week_containing(as_of))}))
             else:
                 store = resolve_store(session, a.store)
                 print(_json({

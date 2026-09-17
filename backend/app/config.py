@@ -36,6 +36,21 @@ class Settings(BaseSettings):
     open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
     nws_alerts_url: str = "https://api.weather.gov/alerts"
 
+    # Spreadsheet sources (no OAuth: share links). A Google Sheet is read as CSV
+    # from its share link (sheet must be "anyone with the link can view"); pick
+    # the tab by name or by the gid in the tab's URL. A OneDrive / SharePoint
+    # "anyone with the link" share URL is downloaded directly. A local path works too.
+    market_sheet_id: str = ""              # Google Sheet id of the OMMU market dashboard
+    market_sheet_tab: str = ""             # tab name or gid of the raw weekly rows
+    market_self_operator: str = ""         # our operator name as the report spells it (optional; is_p13 column wins)
+    deals_sheet_id: str = ""               # Google Sheet id of the competitor deals workbook
+    deals_sheet_tab: str = ""              # deals library tab name or gid
+    promotions_url: str = ""               # OneDrive share link, Google Sheet share link, https URL or local path to the promotions workbook
+    promotions_sheet: str = ""             # worksheet name (blank = first)
+    promotions_column_map: str = ""        # JSON {"name": "Promo", "start": "Start Date", ...} when headers are unusual
+    market_centroid_lat: float = 28.1      # where statewide events are placed (Florida)
+    market_centroid_lon: float = -81.6
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

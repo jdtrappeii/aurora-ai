@@ -13,6 +13,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.analytics.discounts import promotion_feed
 from app.analytics.financial import summarize_lines
 from app.analytics.lines import LineRow, completed, load_lines
 from app.analytics.money import ZERO, money, pct_change, rate, safe_div
@@ -91,6 +92,11 @@ def promotion_results(session: Session, store_code: str | None = None, promotion
                 "discount_value": promo.discount_value,
                 "eligible_skus": sorted(eligible_skus(promo)),
                 "eligible_category": promo.eligible_category,
+                "weekdays": promo.weekdays,
+                "store_codes": promo.store_codes.split("|") if promo.store_codes else [],
+                "audience": promo.audience,
+                "source": promo.source,
+                "feed": promotion_feed(session, promo, store_code),
                 **promo_summary,
                 **promo_daily,
                 "attachment_rate": rate(safe_div(len(promo_tickets), len(all_tickets))),

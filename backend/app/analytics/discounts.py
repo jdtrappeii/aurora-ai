@@ -77,3 +77,72 @@ def discount_report(session: Session, period: Period, store_code: str | None = N
         } if undiscounted else None,
         "codes": codes[:limit],
     }
+
+
+def promotion_feed(session: Session, promo, store_code: str | None = None) -> dict | None:
+    """What the aggregate feed (discount_daily) says about one promotion: the
+    rows whose discount name is one of the promotion's POS names, on the days
+    the promotion runs, in the stores it applies to; versus the same codes over
+    the equal-length window before it started. None when the promotion has no
+    POS discount names to join on."""
+    from app.importers.promotions_sheet import active_days
+    from app.models import Store
+
+    if not promo.discount_names:
+        return None
+    names = {n.strip().casefold() for n in promo.discount_names.split("|") if n.strip()}
+    codes = {c for c in (promo.store_codes or "").split("|") if c}
+    if store_code:
+        if codes and store_code not in codes:
+            return {"discount_names": sorted(names), "applies_to_store": False}
+        codes = {store_code}
+
+    def load(days: list) -> dict:
+        if not days:
+            return {"discount_total": ZERO, "revenue": ZERO, "units": 0, "transaction_count": 0, "days_with_data": 0}
+        stmt = select(DiscountDaily).where(DiscountDaily.sale_date >= min(days), DiscountDaily.sale_date <= max(days))
+        if codes:
+            stmt = stmt.join(Store, DiscountDaily.store_id == Store.id).where(Store.code.in_(sorted(codes)))
+        dayset = set(days)
+        agg = {"discount_total": ZERO, "revenue": ZERO, "units": 0, "transaction_count": 0}
+        seen_days = set()
+        for row in session.execute(stmt).scalars():
+            if row.sale_date not in dayset or row.discount_name.casefold() not in names:
+                continue
+            agg["discount_total"] += row.discount_total
+            agg["revenue"] += row.revenue
+            agg["units"] += row.units
+            agg["transaction_count"] += row.transaction_count
+            seen_days.add(row.sale_date)
+        agg["days_with_data"] = len(seen_days)
+        return agg
+
+    window_days = active_days(promo, promo.start_date, promo.end_date)
+    span = (promo.end_date - promo.start_date).days + 1
+    base_promo_like = type("P", (), {})()
+    base_promo_like.weekdays = promo.weekdays
+    base_promo_like.start_date = promo.start_date - timedelta(days=span)
+    base_promo_like.end_date = promo.start_date - timedelta(days=1)
+    base_days = active_days(base_promo_like, base_promo_like.start_date, base_promo_like.end_date)
+    cur, base = load(window_days), load(base_days)
+
+    def per_day(a):
+        n = a["days_with_data"]
+        return {
+            "discount_per_day": money(safe_div(a["discount_total"], n)), "revenue_per_day": money(safe_div(a["revenue"], n)),
+            "tickets_per_day": rate(safe_div(a["transaction_count"], n)),
+        }
+
+    return {
+        "discount_names": sorted(names),
+        "applies_to_store": True,
+        "scheduled_days": len(window_days),
+        "window": {**{k: (money(v) if isinstance(v, Decimal) else v) for k, v in cur.items()},
+                   "discount_depth": rate(safe_div(cur["discount_total"], cur["revenue"] + cur["discount_total"])), **per_day(cur)},
+        "baseline": {**{k: (money(v) if isinstance(v, Decimal) else v) for k, v in base.items()}, **per_day(base)} if base["days_with_data"] else None,
+        "vs_baseline": {
+            "discount_per_day_pct": pct_change(per_day(cur)["discount_per_day"], per_day(base)["discount_per_day"]),
+            "revenue_per_day_pct": pct_change(per_day(cur)["revenue_per_day"], per_day(base)["revenue_per_day"]),
+            "tickets_per_day_pct": pct_change(per_day(cur)["tickets_per_day"], per_day(base)["tickets_per_day"]),
+        } if base["days_with_data"] else None,
+    }
