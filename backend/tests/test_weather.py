@@ -18,7 +18,7 @@ from app.integrations.weather import (
 from app.models import ExternalEvent, Store, WeatherObservation
 
 TODAY = date(2026, 9, 18)
-NOW = datetime(2026, 9, 18, 16, 0)  # UTC; 12:00 in Pace (Central)
+NOW = datetime(2026, 9, 18, 17, 0)  # UTC; 12:00 CDT in Pace (UTC-5 in September)
 
 
 def om_payload(day: str, hours: int = 24, temp=88.0, precip=0.0, code=1, wind=8.0):
@@ -135,16 +135,16 @@ def test_weather_sync_end_to_end(session):
     assert by[(datetime(2026, 9, 10, 5), 0)].alert == "Tropical Storm Warning" and by[(datetime(2026, 9, 10, 0), 0)].alert is None
 
     events = {e.event_id: e for e in session.execute(select(ExternalEvent)).scalars()}
-    assert set(events) == {"nws:HS10136:1", "nws:HS10136:9"}
-    assert events["nws:HS10136:1"].severity == "severe" and events["nws:HS10136:1"].is_forecast == 0
-    assert events["nws:HS10136:9"].is_forecast == 1 and events["nws:HS10136:9"].store_id is not None
+    assert set(events) == {"nws:HS10136:urn:a:1", "nws:HS10136:urn:a:9"}
+    assert events["nws:HS10136:urn:a:1"].severity == "severe" and events["nws:HS10136:urn:a:1"].is_forecast == 0
+    assert events["nws:HS10136:urn:a:9"].is_forecast == 1 and events["nws:HS10136:urn:a:9"].store_id is not None
 
     # the engine's daily summary picks it up: rain + alert on 9/10, heat on 9/18 (max 97 forecast excluded -> 96 observed)
     store = session.execute(select(Store).where(Store.code == "HS10136")).scalar_one()
     days = daily_weather(session, store)
     d10 = days[date(2026, 9, 10)]
     assert d10["precipitation_in"] == Decimal("7.2") and "alert" in weather_tags(d10) and "heavy_rain" in weather_tags(d10)
-    assert weather_tags(days[date(2026, 9, 18)]) == ["heat"]
+    assert weather_tags(days[date(2026, 9, 18)]) == ["extreme_heat"]
     fc = daily_weather(session, store, is_forecast=1)
     assert "storm" in weather_tags(fc[date(2026, 9, 19)]) or "heavy_rain" in weather_tags(fc[date(2026, 9, 19)])
 
