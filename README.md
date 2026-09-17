@@ -165,6 +165,7 @@ python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15
 | `holidays` package | `calendar` | none | federal + state holidays (`HOLIDAY_COUNTRY` / `HOLIDAY_SUBDIVISION`) |
 | Cannabis calendar | `calendar` | none | 4/20 and Green Wednesday (*major*), 7/10, Black Friday, New Year's Eve; edit `CANNABIS_CALENDAR` in `integrations/events/calendar.py` |
 | Store heartbeat | `utility`, `connectivity` | your device | a pinger at each store; silences become outage events (below) |
+| Open-Meteo + NWS | `weather_observations`, `weather` events | none | hourly history and 16-day forecast per store; NWS alerts (below) |
 
 A provider runs only when its key is set, so `events-sync` with no keys still
 writes the calendar. Re-running a range is idempotent. Events dated after today
@@ -179,6 +180,25 @@ FL511's endpoint follows the 511 platform several states share
 (`/api/v2/get/event?key=&format=json`); register at fl511.com/developers. The
 client is written from the published platform docs and the test suite exercises
 it against recorded rows, not the live feed.
+
+### Weather (Open-Meteo + National Weather Service, no keys)
+
+```bash
+python -m app.cli weather-sync --start 2025-01-01 --end 2026-10-01      # backfill, then nightly for the last few days
+```
+
+Open-Meteo supplies hourly temperature, precipitation, snowfall, wind and a
+WMO weather code per store, already in °F / inches / mph: the archive endpoint
+(ERA5, from 1940, about five days behind) for the old part of the range and the
+forecast endpoint (92 days back, 16 ahead) for the recent part. Hours after the
+sync time are stored as forecasts; the next sync writes the observation as its
+own row, so forecast history is kept and the engine reads observations only.
+NWS alerts for each store's point (tropical storm warnings, heat advisories,
+flood watches) stamp the hours they cover, which the engine turns into an
+*alert* day tag, and become `weather` events explicit to the store with NWS
+severity (Extreme → severe, Severe → major). The same `GEOCODER_USER_AGENT`
+identifies you to NWS. Open-Meteo is free for non-commercial use up to 10,000
+calls a day and asks for attribution.
 
 ### Store heartbeats (power and internet outages, to the minute)
 
@@ -249,7 +269,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-68 tests. Every monetary expectation is worked out by hand in the test body.
+74 tests. Every monetary expectation is worked out by hand in the test body.
 
 If you upgrade an existing SQLite database from before the Headset connector,
 delete `backend/aurora.db` and re-import: there are no migrations yet.
@@ -315,8 +335,8 @@ a concert, two holidays, a competitor opening, and a 7-day forecast.
 | Version | Scope |
 |---|---|
 | **V1** | CSV imports, Postgres schema, deterministic analytics, dashboard, external events + weather + baseline + evidence |
-| **V1.5 (this)** | Headset connector (sync, recorded envelopes, exact aggregate totals, reconciliation, discount-code report); free event stack (Ticketmaster, SeatGeek, FL511, holiday + cannabis calendar, store heartbeats, Nominatim geocoding) |
+| **V1.5 (this)** | Headset connector (sync, recorded envelopes, exact aggregate totals, reconciliation, discount-code report); free event stack (Ticketmaster, SeatGeek, FL511, holiday + cannabis calendar, store heartbeats, Nominatim geocoding); weather from Open-Meteo + NWS alerts |
 | V2 | Claude AI analyst with read-only tools over these endpoints; recommendation engine; evidence-based answers |
-| V3 | Automatic QuickBooks and POS synchronization; live weather / traffic / outage feeds; scheduled nightly Headset sync |
+| V3 | Automatic QuickBooks and Dutchie POS synchronization; scheduled nightly Headset / weather / events sync |
 | V4 | Scheduled weekly owner report, forecasting, vendor intelligence |
 | Later | Metrc integration only when there is a clear operational need |

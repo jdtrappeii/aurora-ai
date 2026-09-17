@@ -28,8 +28,13 @@ class Settings(BaseSettings):
     # Devices at each store POST /api/heartbeat with this token; blank disables the endpoint.
     heartbeat_token: str = ""
     heartbeat_gap_minutes: int = 5
-    # Nominatim (OpenStreetMap) requires a descriptive User-Agent with a contact.
+    # Nominatim (OpenStreetMap) and the National Weather Service both require a
+    # descriptive User-Agent with a contact. One setting serves both.
     geocoder_user_agent: str = "aurora-ai/0.2 (set GEOCODER_USER_AGENT to your contact email)"
+    # Weather: Open-Meteo (no key) for hourly history + forecast, NWS (no key) for alerts.
+    open_meteo_forecast_url: str = "https://api.open-meteo.com/v1/forecast"
+    open_meteo_archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
+    nws_alerts_url: str = "https://api.weather.gov/alerts"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

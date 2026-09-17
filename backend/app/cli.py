@@ -16,6 +16,7 @@ External events (free stack):
     python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15   # Ticketmaster / SeatGeek / FL511 / calendar
     python -m app.cli heartbeat-events [--min-gap 5]           # silences between heartbeat runs -> outage events
     python -m app.cli heartbeat-status
+    python -m app.cli weather-sync --start 2026-06-01 --end 2026-10-01 [--store HS10136] [--no-alerts]
 """
 import argparse
 import json
@@ -33,6 +34,7 @@ from app.importers.headset import import_headset_directory, reconcile
 from app.integrations import heartbeat as hb
 from app.integrations.events.sync import events_sync, upsert_events
 from app.integrations.geocode import geocode_stores
+from app.integrations.weather import weather_sync
 
 
 def _json(obj) -> str:
@@ -80,6 +82,11 @@ def main(argv: list[str] | None = None) -> int:
     p_hb.add_argument("--min-gap", type=int, default=None, help="minutes (default HEARTBEAT_GAP_MINUTES)")
     p_hb.add_argument("--open-after", type=int, default=None, help="also flag stores silent right now for this many minutes")
     sub.add_parser("heartbeat-status")
+    p_wx = sub.add_parser("weather-sync", help="Open-Meteo hourly history + forecast and NWS alerts per store")
+    p_wx.add_argument("--start", required=True)
+    p_wx.add_argument("--end", required=True)
+    p_wx.add_argument("--store", action="append", default=None)
+    p_wx.add_argument("--no-alerts", action="store_true")
     a = ap.parse_args(argv)
 
     init_db()
@@ -120,6 +127,17 @@ def main(argv: list[str] | None = None) -> int:
             _print_results([r])
             for d in drafts:
                 print(f"  {d.store_code} {d.event_type:12s} {d.severity:8s} {d.start_time:%Y-%m-%d %H:%M} -> {d.end_time:%H:%M}  {d.description}")
+        elif a.cmd == "weather-sync":
+            import httpx
+
+            with httpx.Client(timeout=60) as http:
+                report = weather_sync(
+                    session, http, date.fromisoformat(a.start), date.fromisoformat(a.end), settings.geocoder_user_agent,
+                    store_codes=a.store, include_alerts=not a.no_alerts,
+                    forecast_url=settings.open_meteo_forecast_url, archive_url=settings.open_meteo_archive_url, nws_url=settings.nws_alerts_url,
+                )
+            _print_results(report.results)
+            print(_json({k: v for k, v in report.to_dict().items() if k != "results"}))
         elif a.cmd == "heartbeat-status":
             for st in hb.status(session):
                 print(f"{st.store:10s} {st.kind:8s} last seen {st.last_seen_at:%Y-%m-%d %H:%M}  silent {st.minutes_silent} min")
