@@ -9,6 +9,7 @@ import CategoryTable from "@/components/CategoryTable";
 import ProductsTable from "@/components/ProductsTable";
 import InventoryPanel from "@/components/InventoryPanel";
 import PromotionsPanel from "@/components/PromotionsPanel";
+import DiscountsPanel from "@/components/DiscountsPanel";
 import ExternalPanel from "@/components/ExternalPanel";
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -129,6 +130,12 @@ export default function Page() {
           <Section title="Promotions · deal autopsy" hint="each promotion vs the 28 days before it">
             <PromotionsPanel promos={data.promotions} />
           </Section>
+
+          {data.discounts && (
+            <Section title="Discount codes" hint="this week · what each code cost and how deep it cut">
+              <DiscountsPanel d={data.discounts} />
+            </Section>
+          )}
 
           {data.external && (
             <Section title="Outside the four walls" hint={`external intelligence · ${data.external.store}`}>

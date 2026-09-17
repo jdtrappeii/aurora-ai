@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.analytics.comparisons import weekly_comparison, weekly_trend
+from app.analytics.discounts import discount_report
 from app.analytics.external import event_findings, proactive_forecast, weather_intelligence
 from app.analytics.financial import financial_summary
 from app.analytics.inventory import inventory_report
@@ -13,6 +14,7 @@ from app.analytics.products import category_profitability, product_profitability
 from app.analytics.promotions import promotion_results
 from app.db import get_session
 from app.importers.csv_importer import IMPORTERS, ImportError_
+from app.importers.headset import Envelope, import_envelope, reconcile
 from app.models import Sale, Store
 
 router = APIRouter(prefix="/api")
@@ -44,6 +46,15 @@ def stores(session: Session = Depends(get_session)):
     return [{"code": s.code, "name": s.name} for s in session.execute(select(Store).order_by(Store.code)).scalars()]
 
 
+@router.post("/import/headset")
+async def import_headset(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    """Upload one recorded Headset envelope (see app/importers/headset.py)."""
+    try:
+        return import_envelope(session, Envelope.load(await file.read())).to_dict()
+    except ImportError_ as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/import/{kind}")
 async def import_csv(kind: str, file: UploadFile = File(...), session: Session = Depends(get_session)):
     if kind not in IMPORTERS:
@@ -53,6 +64,26 @@ async def import_csv(kind: str, file: UploadFile = File(...), session: Session =
     except ImportError_ as e:
         raise HTTPException(400, str(e))
     return result.to_dict()
+
+
+@router.get("/headset/reconcile")
+def headset_reconcile(store: str | None = None, session: Session = Depends(get_session)):
+    rows = reconcile(session, store)
+    return {
+        "days": len(rows),
+        "ok": sum(1 for r in rows if r["coverage"] == "ok"),
+        "mismatches": [r for r in rows if r["coverage"] == "mismatch"],
+        "missing": [{"store": r["store"], "date": r["date"], "feed_revenue": r["feed_revenue"]} for r in rows if r["coverage"] == "missing"],
+    }
+
+
+@router.get("/metrics/discounts")
+def metrics_discounts(
+    start: date | None = None, end: date | None = None, as_of: date | None = None, store: str | None = None,
+    limit: int = Query(25, ge=1, le=500),
+    session: Session = Depends(get_session),
+):
+    return discount_report(session, resolve_period(session, start, end, as_of), store, limit)
 
 
 @router.get("/metrics/weekly")
@@ -128,6 +159,7 @@ def dashboard(as_of: date | None = None, store: str | None = None, session: Sess
         "four_week_categories": category_profitability(session, four_week_window(current), store),
         "inventory": {**inv, "watch": watch, "stockout_risk": stockout},
         "promotions": promotion_results(session, store),
+        "discounts": discount_report(session, current, store, 15),
         "external": _external_block(session, store, as_of, current),
     }
 

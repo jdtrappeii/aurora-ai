@@ -33,18 +33,23 @@ class LineRow:
     unit_cost: Decimal
     promotion_id: int | None
     promotion_name: str | None
+    source: str = "pos"
+    gross_total: Decimal | None = None
+    revenue_total: Decimal | None = None
+    cogs_total: Decimal | None = None
+    ticket_count: int = 1
 
     @property
     def revenue(self) -> Decimal:
-        return self.sale_price * self.quantity
+        return self.revenue_total if self.revenue_total is not None else self.sale_price * self.quantity
 
     @property
     def gross_sales(self) -> Decimal:
-        return self.regular_price * self.quantity
+        return self.gross_total if self.gross_total is not None else self.regular_price * self.quantity
 
     @property
     def cogs(self) -> Decimal:
-        return self.unit_cost * self.quantity
+        return self.cogs_total if self.cogs_total is not None else self.unit_cost * self.quantity
 
     @property
     def gross_profit(self) -> Decimal:
@@ -79,6 +84,11 @@ def load_lines(
             SaleItem.unit_cost,
             SaleItem.promotion_id,
             Promotion.name,
+            Sale.source,
+            SaleItem.gross_total,
+            SaleItem.revenue_total,
+            SaleItem.cogs_total,
+            SaleItem.ticket_count,
         )
         .join(Sale, SaleItem.sale_id == Sale.id)
         .join(Store, Sale.store_id == Store.id)
@@ -100,3 +110,21 @@ def load_lines(
 
 def completed(lines: list[LineRow]) -> list[LineRow]:
     return [ln for ln in lines if ln.status == "completed"]
+
+
+def count_tickets(lines: list[LineRow]) -> int:
+    """Distinct tickets across a set of lines.
+
+    A POS ticket counts once however many lines it has. An aggregate line
+    (Headset store x day x product) stands for ticket_count receipts; each such
+    sale has exactly one line, so the counts add. At product grain that is
+    exact; summed across products it over-counts receipts that held several
+    products, which is why period totals use DailyStoreSummary instead."""
+    pos_ids = set()
+    aggregate = 0
+    for ln in lines:
+        if ln.source == "pos":
+            pos_ids.add(ln.sale_id)
+        else:
+            aggregate += ln.ticket_count
+    return len(pos_ids) + aggregate

@@ -171,6 +171,30 @@ export interface External {
   forecast: ForecastDay[];
 }
 
+export interface DiscountCode {
+  discount_name: string;
+  discount_total: number;
+  revenue: number;
+  units: number;
+  transaction_count: number;
+  discount_depth: number;
+  share: number;
+  previous_discount_total: number | null;
+  vs_previous_pct: number | null;
+}
+
+export interface Discounts {
+  period: PeriodInfo;
+  previous_period: PeriodInfo;
+  store: string | null;
+  total_discounts: number;
+  previous_total_discounts: number;
+  vs_previous_pct: number | null;
+  code_count: number;
+  undiscounted: { revenue: number; units: number; transaction_count: number } | null;
+  codes: DiscountCode[];
+}
+
 export interface Dashboard {
   as_of: string;
   store: string | null;
@@ -181,6 +205,7 @@ export interface Dashboard {
   four_week_categories: CategoryRow[];
   inventory: Inventory;
   promotions: Promotion[];
+  discounts: Discounts;
   external: External | null;
 }
 

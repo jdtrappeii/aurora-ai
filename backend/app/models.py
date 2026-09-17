@@ -106,6 +106,9 @@ class Sale(Base):
     employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="completed")  # completed | refunded | voided
+    # "pos" = one real ticket (CSV / POS export). "headset" = an aggregate row from the
+    # Headset feed (store x day x product) standing in for many tickets.
+    source: Mapped[str] = mapped_column(String(16), default="pos")
 
     store: Mapped[Store] = relationship()
     employee: Mapped[Employee | None] = relationship()
@@ -119,6 +122,11 @@ class SaleItem(Base):
 
     regular_price / sale_price / unit_cost are PER UNIT.
     discount_amount is the LINE total: (regular_price - sale_price) * quantity.
+
+    Aggregate feeds (Headset) report line TOTALS, not unit prices. For those rows
+    gross_total / revenue_total / cogs_total carry the exact totals and the per-unit
+    columns are informational (total / quantity, rounded). ticket_count is how many
+    tickets the line represents: 1 for a real POS line, N for an aggregate row.
     """
 
     __tablename__ = "sale_items"
@@ -132,6 +140,10 @@ class SaleItem(Base):
     discount_amount: Mapped[Decimal] = mapped_column(MONEY)
     unit_cost: Mapped[Decimal] = mapped_column(COST)
     promotion_id: Mapped[int | None] = mapped_column(ForeignKey("promotions.id"), nullable=True)
+    gross_total: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    revenue_total: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    cogs_total: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    ticket_count: Mapped[int] = mapped_column(Integer, default=1)
 
     sale: Mapped[Sale] = relationship(back_populates="items")
     product: Mapped[Product] = relationship()
@@ -172,6 +184,58 @@ class Expense(Base):
     amount: Mapped[Decimal] = mapped_column(MONEY)
 
     __table_args__ = (Index("ix_expenses_store_date", "store_id", "expense_date"),)
+
+
+# ---------------------------------------------------------------------------
+# Aggregate feeds (Headset)
+# ---------------------------------------------------------------------------
+
+class DailyStoreSummary(Base):
+    """One row per store per day as reported by an aggregate feed. It is the
+    feed's own total for the day, so it is the reconciliation target for the
+    product-grain rows and the only exact source of the day's ticket count
+    (product rows over-count tickets: a receipt with two products appears twice)."""
+
+    __tablename__ = "daily_store_summaries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    sale_date: Mapped[date] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(16), default="headset")
+    transaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    units: Mapped[int] = mapped_column(Integer, default=0)
+    gross_sales: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    discount_total: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    revenue: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    cogs: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    gross_profit: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+
+    store: Mapped[Store] = relationship()
+
+    __table_args__ = (UniqueConstraint("store_id", "sale_date", "source", name="uq_daily_store_summary"),)
+
+
+class DiscountDaily(Base):
+    """Discount / promo code performance per store per day (Headset's
+    discount_name dimension). discount_total is attributable to this code only,
+    revenue/units are of the items that carried it, transaction_count is the
+    receipts that used it. A NULL code is undiscounted items (stored as '')."""
+
+    __tablename__ = "discount_daily"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    sale_date: Mapped[date] = mapped_column(Date)
+    discount_name: Mapped[str] = mapped_column(String(255), default="")
+    revenue: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    units: Mapped[int] = mapped_column(Integer, default=0)
+    discount_total: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    transaction_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    store: Mapped[Store] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("store_id", "sale_date", "discount_name", name="uq_discount_daily"),
+        Index("ix_discount_daily_store_date", "store_id", "sale_date"),
+    )
 
 
 # ---------------------------------------------------------------------------

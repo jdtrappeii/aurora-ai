@@ -14,3 +14,10 @@ frontend/.env*.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Your data. Recorded Headset pulls, POS exports, anything under data/ never
+# belongs in the repository (the template is public).
+data/
+backend/data/
+*.headset.json
+backend/*.sqlite*

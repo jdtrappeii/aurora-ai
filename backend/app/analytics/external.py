@@ -104,7 +104,9 @@ def hourly_actuals(session: Session, store_code: str | None, start: datetime, en
         b = buckets[h]
         b.revenue += ln.revenue
         b.gross_profit += ln.gross_profit
-        if ln.sale_id not in seen_tickets[h]:
+        if ln.source != "pos":
+            b.transactions += ln.ticket_count  # aggregate feed row: one line, many tickets
+        elif ln.sale_id not in seen_tickets[h]:
             seen_tickets[h].add(ln.sale_id)
             b.transactions += 1
     return buckets
