@@ -25,7 +25,7 @@ def init_db(target_engine=None) -> list[str]:
     tool yet; columns are only ever added (nullable or with a default), so
     ALTER TABLE ... ADD COLUMN on SQLite and Postgres covers every schema change
     so far. Returns the statements it ran."""
-    from sqlalchemy import inspect, text
+    from sqlalchemy import Text, inspect, text
 
     from app import models  # noqa: F401  (registers tables on Base)
 
@@ -47,6 +47,27 @@ def init_db(target_engine=None) -> list[str]:
                     ddl += " DEFAULT 0"
                 conn.execute(text(ddl))
                 applied.append(ddl)
+        # Columns the model now declares as unbounded Text but the table still
+        # holds as VARCHAR(n): widen in place (Postgres; SQLite ignores lengths).
+        if eng.dialect.name == "postgresql":
+            for table in Base.metadata.sorted_tables:
+                db_cols = {c["name"]: c for c in insp.get_columns(table.name)}
+                for col in table.columns:
+                    dbc = db_cols.get(col.name)
+                    if dbc is None or not isinstance(col.type, Text):
+                        continue
+                    if getattr(dbc["type"], "length", None):
+                        ddl = f"ALTER TABLE {table.name} ALTER COLUMN {col.name} TYPE TEXT"
+                        conn.execute(text(ddl))
+                        applied.append(ddl)
+            # promotions used to be unique on name alone; now unique on (name, start_date)
+            for uc in insp.get_unique_constraints("promotions"):
+                if uc["column_names"] == ["name"] and uc.get("name"):
+                    ddl = f"ALTER TABLE promotions DROP CONSTRAINT IF EXISTS {uc['name']}"
+                    conn.execute(text(ddl))
+                    applied.append(ddl)
+        ddl = "CREATE UNIQUE INDEX IF NOT EXISTS uq_promotions_name_start ON promotions (name, start_date)"
+        conn.execute(text(ddl))
     return applied
 
 

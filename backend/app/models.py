@@ -92,7 +92,8 @@ class Customer(Base):
 class Promotion(Base):
     __tablename__ = "promotions"
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(128), unique=True)
+    __table_args__ = (UniqueConstraint("name", "start_date", name="uq_promotions_name_start"),)
+    name: Mapped[str] = mapped_column(Text)   # promo calendars carry the whole offer text as the name
     start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date] = mapped_column(Date)
     discount_type: Mapped[str] = mapped_column(String(16))  # percent | amount | bogo
@@ -103,7 +104,7 @@ class Promotion(Base):
     weekdays: Mapped[str | None] = mapped_column(String(16), nullable=True)      # ISO weekday numbers "2" or "1,3,5"; NULL = every day
     store_codes: Mapped[str | None] = mapped_column(Text, nullable=True)         # pipe-separated store codes; NULL = all stores
     discount_names: Mapped[str | None] = mapped_column(Text, nullable=True)      # pipe-separated POS discount names as the feed reports them
-    audience: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    audience: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(32), default="manual")
 

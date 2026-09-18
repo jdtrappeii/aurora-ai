@@ -6,7 +6,7 @@ PROMOTIONS_COLUMN_MAP. What a row needs:
 
   name            the promotion; also the upsert key
   start           first day it runs
-  end             last day (blank = open-ended: one year from start, noted)
+  end             last day (blank = that day only; with weekdays = recurring for a year, noted)
   value           "35%", "$10 off", "BOGO", "60% OFF ALL 1G VAPES" — the type is
                   inferred when there is no type column
   weekdays        "Tuesday", "Tue", "Mon-Wed", "Tue, Thu", "Daily" (blank = every day)
@@ -134,8 +134,11 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
     res = ImportResult("promotions_sheet")
     if isinstance(column_map, str):
         column_map = json.loads(column_map) if column_map.strip() else None
-    existing = {p.name: p for p in session.execute(select(Promotion)).scalars()}
-    seen_in_sheet: set[str] = set()
+    existing = {(p.name, p.start_date): p for p in session.execute(select(Promotion)).scalars()}
+    by_name: dict[str, list[Promotion]] = {}
+    for p in existing.values():
+        by_name.setdefault(p.name, []).append(p)
+    touched: set[Promotion] = set()   # rows written by this import; only these merge
     for i, r in enumerate(rows, start=2):
         name = cell_str(pick(r, "name", column_map))
         start = cell_date(pick(r, "start", column_map))
@@ -148,9 +151,13 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
             continue
         end = cell_date(pick(r, "end", column_map))
         notes = cell_str(pick(r, "notes", column_map))
+        weekdays = parse_weekdays(pick(r, "weekdays", column_map))
         if end is None:
-            end = start + timedelta(days=365)
-            notes = ((notes + " · ") if notes else "") + "open-ended (end assumed one year from start)"
+            if weekdays:   # a recurring rule with no end: keep it running a year, and say so
+                end = start + timedelta(days=365)
+                notes = ((notes + " · ") if notes else "") + "open-ended (end assumed one year from start)"
+            else:          # a calendar row: the deal runs that day
+                end = start
         if end < start:
             res.errors.append(f"row {i} ({name}): end {end} precedes start {start}")
             res.skipped += 1
@@ -162,9 +169,6 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
         codes, unknown = resolve_store_codes(session, _split(pick(r, "stores", column_map)))
         if unknown:
             res.errors.append(f"row {i} ({name}): unknown store(s) {unknown}; applied to all stores")
-        weekdays = parse_weekdays(pick(r, "weekdays", column_map))
-        if weekdays is None and start == end:
-            pass  # a single-day deal; fine
         skus = "|".join(_split(pick(r, "skus", column_map))) or None
         values = dict(
             start_date=start, end_date=end, discount_type=dtype, discount_value=dvalue,
@@ -173,9 +177,15 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
             discount_names="|".join(_split(pick(r, "discount_names", column_map))) or None,
             audience=cell_str(pick(r, "audience", column_map)), notes=notes, source=source,
         )
-        promo = existing.get(name)
-        if promo is not None and name in seen_in_sheet:
-            # the same deal on several rows (one per store / day): union the scope
+        # The same deal on several rows (one per store, or one per day of a run):
+        # merge only when the rows touch or overlap, so a deal that recurs on
+        # separate dates stays separate windows instead of one long smear.
+        promo = None
+        for cand in by_name.get(name, []):
+            if cand in touched and start <= cand.end_date + timedelta(days=1) and end >= cand.start_date - timedelta(days=1):
+                promo = cand
+                break
+        if promo is not None:
             promo.store_codes = "|".join(sorted(set((promo.store_codes or "").split("|")) | set(codes) - {""})) or None if (promo.store_codes and codes) else None
             if weekdays and promo.weekdays:
                 promo.weekdays = ",".join(sorted(set(promo.weekdays.split(",")) | set(weekdays.split(",")), key=int))
@@ -183,16 +193,18 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
             promo.end_date = max(promo.end_date, end)
             res.updated += 1
             continue
-        seen_in_sheet.add(name)
+        promo = existing.get((name, start))
         if promo is None:
             promo = Promotion(name=name, **values)
             session.add(promo)
-            existing[name] = promo
+            existing[(name, start)] = promo
+            by_name.setdefault(name, []).append(promo)
             res.inserted += 1
         else:
             for k, v in values.items():
                 setattr(promo, k, v)
             res.updated += 1
+        touched.add(promo)
     session.commit()
     return res
 

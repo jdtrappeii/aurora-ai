@@ -83,6 +83,7 @@ def sync_all(session, a, http=None) -> int:
         try:
             summary["steps"][name] = fn()
         except Exception as e:  # noqa: BLE001 — one bad source must not block the rest
+            session.rollback()
             failures += 1
             summary["steps"][name] = f"FAILED: {type(e).__name__}: {e}"
             print(f"[sync-all] {name} failed: {e}")

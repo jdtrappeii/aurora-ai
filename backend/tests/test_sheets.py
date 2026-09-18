@@ -315,3 +315,42 @@ def test_sheets_sync_skips_unconfigured_and_reports_errors(session):
     with mock(lambda req: (403, b"forbidden", {})) as http:
         rep = sheets_sync(session, http, settings(deals_sheet_id="X"))
     assert set(rep.skipped) == {"market", "promotions"} and rep.ran == [] and "deals: " in rep.warnings[0] and "403" in rep.warnings[0]
+
+
+def test_promotion_calendar_rows_are_single_days_and_long_names(session):
+    """A promo calendar: one row per day, no end column, the whole offer as the
+    name. Rows run that day only; the same deal on touching days merges into one
+    window; the same deal weeks later is a separate window (unique per name+start)."""
+    long_name = "55% Off All Edibles, Flower 1/8 oz, and 0.5ml Vapes; 50% Off All Pre-Rolls, 1ml Vapes, Tinctures, & Tablets; " * 4
+    data = promo_xlsx([
+        (long_name, date(2026, 1, 1), None, "", "", "", "", "", "New Years Day"),
+        ("Manager's Special", date(2026, 1, 5), None, "60% off", "", "", "", "", ""),
+        ("Manager's Special", date(2026, 1, 6), None, "60% off", "", "", "", "", ""),
+        ("Manager's Special", date(2026, 2, 3), None, "60% off", "", "", "", "", ""),
+    ])
+    r = import_promotion_rows(session, read_table(data, "cal.xlsx"))
+    assert (r.inserted, r.updated, r.skipped, r.errors) == (3, 1, 0, [])
+    ny = session.execute(select(Promotion).where(Promotion.start_date == date(2026, 1, 1))).scalar_one()
+    assert len(ny.name) > 128 and ny.end_date == date(2026, 1, 1) and ny.notes == "New Years Day"
+    ms = session.execute(select(Promotion).where(Promotion.name == "Manager's Special").order_by(Promotion.start_date)).scalars().all()
+    assert [(p.start_date, p.end_date) for p in ms] == [(date(2026, 1, 5), date(2026, 1, 6)), (date(2026, 2, 3), date(2026, 2, 3))]
+    # re-import is idempotent
+    r2 = import_promotion_rows(session, read_table(data, "cal.xlsx"))
+    assert (r2.inserted, r2.updated) == (0, 4)
+    assert session.execute(select(Promotion)).scalars().all().__len__() == 3
+
+
+def test_init_db_migrates_old_promotions_schema(tmp_path):
+    """A database created by the earlier model (name VARCHAR(128) UNIQUE) must
+    open, gain the (name, start_date) index and accept a long name on SQLite."""
+    from sqlalchemy import create_engine, text
+    from app.db import init_db
+    eng = create_engine(f"sqlite:///{tmp_path/'old.db'}")
+    with eng.begin() as c:
+        c.execute(text("CREATE TABLE promotions (id INTEGER PRIMARY KEY, name VARCHAR(128) UNIQUE, start_date DATE, end_date DATE, "
+                       "discount_type VARCHAR(16), discount_value NUMERIC(12,4), eligible_skus TEXT, eligible_category VARCHAR(64))"))
+    applied = init_db(eng)
+    assert any("ADD COLUMN weekdays" in a for a in applied)
+    with eng.connect() as c:
+        idx = [r[1] for r in c.execute(text("PRAGMA index_list(promotions)"))]
+        assert "uq_promotions_name_start" in idx
