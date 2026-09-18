@@ -43,7 +43,13 @@ confirm() {  # confirm "question" -> 0 on y/yes
   [ "${AURORA_NONINTERACTIVE:-0}" = "1" ] && return 1
   local a; printf '%s [y/N] ' "$1"; read -r a </dev/tty; [[ "$a" =~ ^[Yy]([Ee][Ss])?$ ]]
 }
-port_in_use() { (command -v ss >/dev/null && ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1$") ; }
+# In use by something other than Aurora's own proxy (a re-run must not flag itself).
+port_in_use() {
+  local ours
+  ours="$(docker compose -f "$HOME_DIR/docker-compose.yml" --env-file "$HOME_DIR/.env" port proxy 80 2>/dev/null | sed -E 's/.*:([0-9]+)$/\1/')"
+  [ -n "$ours" ] && [ "$ours" = "$1" ] && return 1
+  (command -v ss >/dev/null && ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1$")
+}
 preflight() {
   say "Preflight (read-only)"
   echo "  host:      $(hostname)  user: $USER  sudo: $(sudo -n true 2>/dev/null && echo yes || echo 'will prompt')"
