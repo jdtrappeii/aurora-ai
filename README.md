@@ -373,18 +373,35 @@ plus a copy of `/data/headset` is a full recovery set.
 
 ## Deploy on a headless server
 
-Fastest path, on the server as a user with sudo:
+On a Linux VPS, as a normal user with sudo. Read the script first, then run it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jdtrappeii/aurora-ai/claude/sleepy-ritchie-hufvuf/deploy/install.sh | bash
+git clone -b claude/sleepy-ritchie-hufvuf https://github.com/jdtrappeii/aurora-ai.git ~/aurora
+less ~/aurora/deploy/install.sh
+bash ~/aurora/deploy/install.sh
 ```
 
-`deploy/install.sh` installs Docker if needed, clones or updates the code into
-`~/aurora`, asks for each key and share link (secrets are not echoed; blank
-keeps the current value, so re-running it later only fills gaps), generates
-the Postgres password, heartbeat token and dashboard login hash, builds the
-stack, and runs the first 90-day sync. Nothing typed leaves the box: it lands
-in the two gitignored `.env` files. The manual equivalent:
+`deploy/install.sh` starts with a read-only preflight (Docker present or not,
+compose plugin, git, disk, RAM, Tailscale IP, whether the port is free) and
+changes nothing until you answer `y`. It reuses an existing Docker and asks
+before installing one. It then asks for each key and share link (secrets are
+not echoed; blank keeps the current value or leaves that source disabled, and
+the sync reports it as skipped), generates the Postgres password, heartbeat
+token and dashboard login hash, builds the stack in its own compose project
+(`aurora`, under `~/aurora`, touching nothing else on the box), and runs the
+first 90-day, Florida-only sync. The proxy binds to `127.0.0.1:8080` unless you
+give it the box's Tailscale IP; it refuses `0.0.0.0`. No public port is opened.
+Headset is not asked for until you run it with `AURORA_HEADSET=1`. Re-running
+the script pulls updates and fills gaps only.
+
+Reach the dashboard from a laptop with an SSH tunnel, then open
+`http://localhost:8080`:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 user@vps
+```
+
+The manual equivalent:
 
 One box, five containers: Postgres, the API, the dashboard, a scheduler that
 runs every configured sync once a night, and a Caddy proxy that is the only
@@ -403,8 +420,10 @@ docker compose run --rm api python -m app.cli sync-all --backfill-days 90 --stor
 docker compose logs -f scheduler
 ```
 
-Open `http://<server-ip>` and log in. Set `AURORA_DOMAIN` to a hostname whose
-DNS points at the box and Caddy obtains an HTTPS certificate on its own. The
+Open `http://localhost:8080` through the tunnel (or the Tailscale address) and
+log in. For a public hostname instead, set `AURORA_DOMAIN` to it, `AURORA_BIND`
+to `0.0.0.0`, `AURORA_HTTP_PORT=80`, `AURORA_HTTPS_PORT=443`, and Caddy obtains
+an HTTPS certificate on its own. The
 scheduler service runs `sync-all` at
 `SYNC_HOUR_UTC` (default 08:00 UTC, 4am Eastern) and once on start-up. Each
 step runs only when configured, never blocks the others, and the run ends with

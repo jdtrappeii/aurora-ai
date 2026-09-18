@@ -11,6 +11,9 @@
 #   docker compose run --rm api python -m app.cli sync-all --backfill-days 90   # first load
 #   open http://<server>   (or https://<AURORA_DOMAIN> once DNS points here)
 
+# Explicit project name: isolated from any other compose stack on the box.
+name: aurora
+
 services:
   postgres:
     image: postgres:16
@@ -79,8 +82,10 @@ services:
       AURORA_USER: ${AURORA_USER:-aurora}
       AURORA_PASSWORD_HASH: "${AURORA_PASSWORD_HASH:?set AURORA_PASSWORD_HASH in .env (docker compose run --rm proxy caddy hash-password)}"
     ports:
-      - "80:80"
-      - "443:443"
+      # Bound to loopback by default: reach it over an SSH tunnel or set
+      # AURORA_BIND to the box's Tailscale IP. Never 0.0.0.0 on a public VPS.
+      - "${AURORA_BIND:-127.0.0.1}:${AURORA_HTTP_PORT:-8080}:80"
+      - "${AURORA_BIND:-127.0.0.1}:${AURORA_HTTPS_PORT:-8443}:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - aurora_caddy:/data
