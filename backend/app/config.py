@@ -21,8 +21,10 @@ class Settings(BaseSettings):
     ticketmaster_api_key: str = ""          # developer.ticketmaster.com (Discovery API, free)
     seatgeek_client_id: str = ""            # platform.seatgeek.com (free)
     seatgeek_client_secret: str = ""
-    fl511_api_key: str = ""                 # fl511.com/developers (FDOT, free)
+    fl511_api_key: str = ""                 # keyed FL511 feed, issued by FDOT on request; optional
     fl511_api_url: str = "https://fl511.com/api/v2/get/event"
+    # FDOT's public ArcGIS incident layer: the default traffic source, no key. Blank disables it.
+    fl511_arcgis_url: str = "https://services.arcgis.com/3wFbqsFPLeKqOlIK/arcgis/rest/services/FL511_2026_feed_view/FeatureServer/0/query"
     events_radius_km: float = 15.0          # how far from a store a concert / game still counts
     traffic_radius_km: float = 5.0          # how far a road event still counts
     holiday_country: str = "US"

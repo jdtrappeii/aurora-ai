@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.analytics.external import DEFAULT_RADIUS_KM
 from app.importers.csv_importer import ImportResult
 from app.integrations.events import calendar as calendar_provider
-from app.integrations.events import fl511, seatgeek, ticketmaster
+from app.integrations.events import fl511, fl511_arcgis, seatgeek, ticketmaster
 from app.integrations.events.common import EventDraft, ProviderError, StorePoint, dedupe
 from app.models import ExternalEvent, Store
 
@@ -133,7 +133,16 @@ def events_sync(session: Session, start: date, end: date, http: httpx.Client, se
     elif stores:
         report.providers["seatgeek"] = "disabled (SEATGEEK_CLIENT_ID not set)"
 
-    # --- traffic ---
+    # --- traffic: the keyed feed when a key exists, else FDOT's public incident layer ---
+    if not settings.fl511_api_key and getattr(settings, "fl511_arcgis_url", "") and stores:
+        try:
+            drafts, stats = fl511_arcgis.fetch_events(http, stores, settings.traffic_radius_km, settings.fl511_arcgis_url, now=now)
+            drafts = [d for d in drafts if d.start_time.date() <= end and d.end_time.date() >= start]
+            report.providers["fl511_arcgis"] = {**stats, "in_range": len(drafts)}
+            report.results.append(upsert_events(session, drafts, "fl511-gis"))
+        except ProviderError as e:
+            report.providers["fl511_arcgis"] = {"error": str(e)}
+            report.warnings.append(f"fl511_arcgis: {e}")
     if settings.fl511_api_key and stores:
         try:
             drafts, stats = fl511.fetch_events(http, settings.fl511_api_key, stores, settings.traffic_radius_km, settings.fl511_api_url, now=now)
@@ -143,8 +152,8 @@ def events_sync(session: Session, start: date, end: date, http: httpx.Client, se
         except ProviderError as e:
             report.providers["fl511"] = {"error": str(e)}
             report.warnings.append(f"fl511: {e}")
-    elif stores:
-        report.providers["fl511"] = "disabled (FL511_API_KEY not set)"
+    elif stores and not getattr(settings, "fl511_arcgis_url", ""):
+        report.providers["fl511"] = "disabled (FL511_API_KEY not set and FL511_ARCGIS_URL blank)"
 
     # --- calendar ---
     if include_calendar:

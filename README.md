@@ -161,7 +161,8 @@ python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15
 |---|---|---|---|
 | Ticketmaster Discovery API | `local_event` | free, 5,000 calls/day | concerts, pro sports, family shows within `EVENTS_RADIUS_KM` of each store; stadiums / arenas and sports are *major* |
 | SeatGeek Platform API | `local_event` | free | second ticket source; an event at the same venue on the same day as a Ticketmaster one is dropped |
-| FL511 (FDOT) | `traffic` | free | crashes, closures, roadwork within `TRAFFIC_RADIUS_KM`; full closures are *major*; roadwork longer than 14 days is skipped |
+| FDOT public incident layer (FL511) | `traffic` | none | the live FL511 incident list from FDOT's public ArcGIS service: crashes, closures, construction within `TRAFFIC_RADIUS_KM`; "all lanes blocked" and road closures are *major*; the default traffic source |
+| FL511 keyed feed | `traffic` | key issued by FDOT on request | the same platform feed with planned end dates; used instead of the public layer when `FL511_API_KEY` is set |
 | `holidays` package | `calendar` | none | federal + state holidays (`HOLIDAY_COUNTRY` / `HOLIDAY_SUBDIVISION`) |
 | Cannabis calendar | `calendar` | none | 4/20 and Green Wednesday (*major*), 7/10, Black Friday, New Year's Eve; edit `CANNABIS_CALENDAR` in `integrations/events/calendar.py` |
 | Store heartbeat | `utility`, `connectivity` | your device | a pinger at each store; silences become outage events (below) |
@@ -176,10 +177,17 @@ School calendars vary by county and are not machine-readable: put them in
 `external_events.csv` with `event_type=calendar` (one row per break, per store
 or with a county-sized radius) and import as usual.
 
-FL511's endpoint follows the 511 platform several states share
-(`/api/v2/get/event?key=&format=json`); register at fl511.com/developers. The
-client is written from the published platform docs and the test suite exercises
-it against recorded rows, not the live feed.
+Traffic needs no key: FDOT publishes the FL511 incident list as a public
+ArcGIS feature layer (`FL511_2026_feed_view`, layer `FL511_Unified_Incidents`)
+and Aurora reads it directly, reprojected to WGS84, one page of 1,000 rows at
+a time. It is the *current* list, so an incident's end is the last time a sync
+saw it; a nightly sync captures what was open at sync time, and an hourly
+`events-sync` in cron catches short incidents. The keyed feed
+(`fl511.com/api/v2/get/event?key=`) exists on the same platform other states
+document publicly, but Florida has no self-service sign-up: ask FDOT through
+the FL511 feedback form (Comment type "Question") for developer API access,
+and set `FL511_API_KEY` if they grant it. Both clients are tested against
+recorded rows, not the live feeds.
 
 ### Weather (Open-Meteo + National Weather Service, no keys)
 
@@ -341,7 +349,7 @@ What Aurora needs from outside the repository, in the order it pays off:
 | 3 | Google Sheets shared "anyone with the link", SharePoint link "anyone with the link" | `MARKET_SHEET_ID`, `DEALS_SHEET_ID`, `PROMOTIONS_URL` | no market read, no competitor pressure, promotions by CSV only |
 | 4 | A POS discount name column in the promotions workbook | the workbook | promotions import but cannot be measured against the feed |
 | 5 | Store coordinates: `gmb-import` the Business Profile export (addresses, hours, opening dates), then `geocode-stores` | database | no local events, traffic or weather per store |
-| 6 | Free keys: Ticketmaster, SeatGeek, FL511 | `backend/.env` | calendar only |
+| 6 | Free keys: Ticketmaster, SeatGeek (FL511 traffic needs none) | `backend/.env` | calendar and traffic only |
 | 7 | SMTP credentials and recipients | `SMTP_*`, `REPORT_TO` | report on the dashboard only, no Monday email |
 | 8 | Login password hash, Postgres password, optional hostname for HTTPS | `.env` next to compose | the stack refuses to start without the hash |
 | 9 | Heartbeat devices at stores (later) | `HEARTBEAT_TOKEN` | outages from utility maps or POS gaps only |
@@ -438,7 +446,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-108 tests. Every monetary expectation is worked out by hand in the test body.
+110 tests. Every monetary expectation is worked out by hand in the test body.
 
 An existing database from an older version is upgraded in place at start-up.
 

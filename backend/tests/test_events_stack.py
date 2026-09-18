@@ -23,7 +23,7 @@ TAMPA = StorePoint("HS10132", "FL - Demo - Tampa", 27.94, -82.48, "America/New_Y
 
 def settings(**over):
     base = dict(ticketmaster_api_key="", seatgeek_client_id="", seatgeek_client_secret="", fl511_api_key="",
-                fl511_api_url="https://fl511.test/api/v2/get/event", events_radius_km=15.0, traffic_radius_km=5.0,
+                fl511_api_url="https://fl511.test/api/v2/get/event", fl511_arcgis_url="", events_radius_km=15.0, traffic_radius_km=5.0,
                 holiday_country="US", holiday_subdivision="FL")
     base.update(over)
     return SimpleNamespace(**base)
@@ -293,3 +293,58 @@ def test_heartbeat_endpoint(engine, monkeypatch):
         assert st[0]["store"] == "HS1" and st[0]["kind"] == "network"
         assert c.post("/api/heartbeat", params={"store": "HS1", "token": "s3cret", "kind": "water"}).status_code == 422
     app.dependency_overrides.clear()
+
+
+GIS_ROWS = {"exceededTransferLimit": False, "features": [
+    {"attributes": {"OBJECTID": 1, "incident_type": "Crash", "Severity": "intermediate", "IncidentID": "114870", "status": "confirmed",
+                    "description": "Crash in Santa Rosa County on US-90 at Pace Blvd. All lanes blocked. Last updated at 08:08 AM.",
+                    "TimeReported": "09/18/2026 7:29:11 AM", "LastUpdated": "09/18/2026 8:08:39 AM",
+                    "primarylocation_county": "Santa Rosa", "primarylocation_highway": "US-90", "primarylocation_direction": "e"},
+     "geometry": {"x": -87.17, "y": 30.605}},
+    {"attributes": {"OBJECTID": 2, "incident_type": "Planned Construction", "Severity": "minor", "IncidentID": "114871",
+                    "description": "Planned construction in Palm Beach County. Left lane blocked.", "TimeReported": "09/01/2026 7:31:18 AM",
+                    "LastUpdated": "09/16/2026 8:08:48 AM", "primarylocation_highway": "Southern Blvd", "primarylocation_direction": "e"},
+     "geometry": {"x": -80.15, "y": 26.68}},
+    {"attributes": {"OBJECTID": 3, "incident_type": "Road Closed", "Severity": "minor", "IncidentID": "9", "description": "Not reprojected",
+                    "TimeReported": "09/18/2026 7:29:11 AM", "LastUpdated": "09/18/2026 7:29:11 AM"},
+     "geometry": {"x": -8921837.95, "y": 3087014.53}},
+]}
+
+
+def test_fl511_arcgis_keyless_feed():
+    from app.integrations.events import fl511_arcgis
+
+    seen = []
+
+    def router(req):
+        seen.append(dict(req.url.params))
+        return 200, GIS_ROWS
+
+    with mock_client(router) as http:
+        drafts, stats = fl511_arcgis.fetch_events(http, [PACE, TAMPA], 5.0, "https://gis.test/query", now=datetime(2026, 9, 18, 14, 0))
+    assert seen[0]["outSR"] == "4326" and seen[0]["resultRecordCount"] == "1000"
+    assert stats == {"total": 3, "near_store": 1, "kept": 1, "pages": 1}
+    d = drafts[0]
+    assert d.event_id == "fl511-gis:114870" and d.event_type == "traffic" and d.severity == "major"  # crash + all lanes blocked
+    # 7:29 Eastern -> 6:29 Central at Pace
+    assert d.start_time == datetime(2026, 9, 18, 6, 29, 11) and d.end_time == datetime(2026, 9, 18, 7, 8, 39)
+    assert d.metadata["nearest_store"] == "HS10136" and d.metadata["county"] == "Santa Rosa"
+    assert fl511_arcgis.severity_for({"Severity": "minor", "incident_type": "Planned Construction", "description": "Left lane blocked"}) == "minor"
+    assert fl511_arcgis.severity_for({"Severity": "minor", "incident_type": "Road Closed", "description": ""}) == "major"
+
+
+def test_events_sync_uses_public_layer_without_a_key(session):
+    session.add(Store(code=PACE.code, name=PACE.name, latitude=PACE.latitude, longitude=PACE.longitude, timezone=PACE.timezone))
+    session.commit()
+
+    def router(req):
+        if req.url.host == "gis.test":
+            return 200, GIS_ROWS
+        return 404, {}
+
+    cfg = settings(fl511_arcgis_url="https://gis.test/query")
+    with mock_client(router) as http:
+        report = events_sync(session, date(2026, 9, 14), date(2026, 9, 27), http, cfg, include_calendar=False, now=datetime(2026, 9, 18, 14, 0))
+    assert report.providers["fl511_arcgis"]["kept"] == 1 and report.providers["fl511_arcgis"]["in_range"] == 1
+    assert "fl511" not in report.providers  # the keyed feed is not reported as disabled when the public layer ran
+    assert session.execute(select(ExternalEvent)).scalar_one().source == "fl511-gis"
