@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     seatgeek_client_secret: str = ""
     fl511_api_key: str = ""                 # keyed FL511 feed, issued by FDOT on request; optional
     fl511_api_url: str = "https://fl511.com/api/v2/get/event"
+    # Road511 (commercial 511 aggregator with event lifecycle + archived history). Optional; wins over the FL511 clients when set.
+    road511_api_key: str = ""
+    road511_url: str = "https://api.road511.com/api/v1/events"
+    road511_history: bool = True            # also pull archived events in the range (plan-gated on the trial: reported, not fatal)
     # FDOT's public ArcGIS incident layer: the default traffic source, no key. Blank disables it.
     fl511_arcgis_url: str = "https://services.arcgis.com/3wFbqsFPLeKqOlIK/arcgis/rest/services/FL511_2026_feed_view/FeatureServer/0/query"
     events_radius_km: float = 15.0          # how far from a store a concert / game still counts

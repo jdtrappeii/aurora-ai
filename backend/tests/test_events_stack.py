@@ -23,7 +23,8 @@ TAMPA = StorePoint("HS10132", "FL - Demo - Tampa", 27.94, -82.48, "America/New_Y
 
 def settings(**over):
     base = dict(ticketmaster_api_key="", seatgeek_client_id="", seatgeek_client_secret="", fl511_api_key="",
-                fl511_api_url="https://fl511.test/api/v2/get/event", fl511_arcgis_url="", events_radius_km=15.0, traffic_radius_km=5.0,
+                fl511_api_url="https://fl511.test/api/v2/get/event", fl511_arcgis_url="", road511_api_key="", road511_url="https://r511.test/events", road511_history=True,
+                events_radius_km=15.0, traffic_radius_km=5.0,
                 holiday_country="US", holiday_subdivision="FL")
     base.update(over)
     return SimpleNamespace(**base)
@@ -348,3 +349,64 @@ def test_events_sync_uses_public_layer_without_a_key(session):
     assert report.providers["fl511_arcgis"]["kept"] == 1 and report.providers["fl511_arcgis"]["in_range"] == 1
     assert "fl511" not in report.providers  # the keyed feed is not reported as disabled when the public layer ran
     assert session.execute(select(ExternalEvent)).scalar_one().source == "fl511-gis"
+
+
+R511_ACTIVE = {"data": [
+    {"id": "fl-evt-1", "source_id": "SG-1", "source": "fl", "jurisdiction": "FL", "type": "incident", "severity": "major", "status": "active",
+     "title": "Crash on US-90 WB at Pace Blvd", "affected_roads": ["US-90"], "direction": "westbound", "lanes_affected": "all lanes blocked",
+     "start_time": "2026-09-18T11:40:00Z", "end_time": None, "estimated_end_time": "2026-09-18T13:40:00Z", "latitude": 30.605, "longitude": -87.17,
+     "last_updated": "2026-09-18T12:00:00Z", "created_at": "2026-09-18T11:40:00Z"},
+    {"id": "fl-evt-2", "type": "restriction", "severity": "minor", "status": "active", "title": "Weight limit", "start_time": "2026-09-18T00:00:00Z",
+     "latitude": 30.606, "longitude": -87.16},
+], "total": 2, "has_more": False}
+R511_ARCHIVED = {"data": [
+    {"id": "fl-evt-old", "type": "closure", "severity": "critical", "status": "archived", "title": "Road closed for parade", "affected_roads": ["SR-90"],
+     "start_time": "2026-09-05T13:00:00Z", "end_time": None, "archived_at": "2026-09-05T18:30:00Z", "archive_reason": "observed",
+     "latitude": 30.60, "longitude": -87.165},
+], "total": 1, "has_more": False}
+
+
+def test_road511_mapping_and_paging():
+    from app.integrations.events import road511
+
+    seen = []
+
+    def router(req):
+        seen.append((dict(req.url.params), req.headers.get("x-api-key")))
+        if req.url.params["status"] == "archived":
+            return 200, R511_ARCHIVED
+        if int(req.url.params["offset"]) == 0:  # the provider advances offset by rows received, not by page size
+            return 200, {**R511_ACTIVE, "has_more": True}
+        return 200, {"data": [], "has_more": False}
+
+    with mock_client(router) as http:
+        drafts, stats = road511.fetch_events(http, "sk_test", [PACE], 5.0, date(2026, 9, 1), date(2026, 9, 30), "https://r511.test/events",
+                                             statuses=("active", "archived"), now=datetime(2026, 9, 18, 14, 0), store_states={"HS10136": "FL"})
+    assert seen[0][1] == "sk_test" and seen[0][0]["jurisdiction"] == "FL" and seen[0][0]["radius_km"] == "5.0"
+    assert stats["requests"] == 3 and stats["kept"] == 2 and stats["gates"] == []
+    by = {d.event_id: d for d in drafts}
+    crash = by["road511:fl-evt-1"]
+    assert crash.severity == "major" and crash.description == "US-90: Crash on US-90 WB at Pace Blvd"
+    assert crash.start_time == datetime(2026, 9, 18, 6, 40) and crash.end_time == datetime(2026, 9, 18, 8, 40)  # UTC -> Central, estimated end
+    assert crash.metadata["end_known"] is False and crash.source_reference == "SG-1"
+    old = by["road511:fl-evt-old"]
+    assert old.severity == "severe" and old.end_time == datetime(2026, 9, 5, 13, 30) and old.metadata["archive_reason"] == "observed"
+    assert "road511:fl-evt-2" not in by  # restrictions are not traffic impacts
+
+
+def test_road511_plan_gate_is_reported_not_raised(session):
+    session.add(Store(code=PACE.code, name=PACE.name, latitude=PACE.latitude, longitude=PACE.longitude, timezone=PACE.timezone, state="FL"))
+    session.commit()
+
+    def router(req):
+        if req.url.params["status"] == "archived":
+            return 403, {"error": "archived events require Starter", "code": "plan_archived_event", "plan": "free"}
+        return 200, R511_ACTIVE
+
+    with mock_client(router) as http:
+        report = events_sync(session, date(2026, 9, 14), date(2026, 9, 27), http, settings(road511_api_key="sk_test", fl511_arcgis_url="https://gis.test/query"),
+                             include_calendar=False, now=datetime(2026, 9, 18, 14, 0))
+    assert report.providers["road511"]["kept"] == 1 and report.providers["road511"]["gates"][0]["code"] == "plan_archived_event"
+    assert any("plan_archived_event" in w for w in report.warnings)
+    assert "fl511_arcgis" not in report.providers  # Road511 takes over as the traffic source
+    assert session.execute(select(ExternalEvent)).scalar_one().source == "road511"

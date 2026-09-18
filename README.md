@@ -163,6 +163,7 @@ python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15
 | SeatGeek Platform API | `local_event` | free | second ticket source; an event at the same venue on the same day as a Ticketmaster one is dropped |
 | FDOT public incident layer (FL511) | `traffic` | none | the live FL511 incident list from FDOT's public ArcGIS service: crashes, closures, construction within `TRAFFIC_RADIUS_KM`; "all lanes blocked" and road closures are *major*; the default traffic source |
 | FL511 keyed feed | `traffic` | key issued by FDOT on request | the same platform feed with planned end dates; used instead of the public layer when `FL511_API_KEY` is set |
+| Road511 | `traffic` | paid after a 14-day trial | the same FL511 events with a tracked lifecycle (start, end, archived) and **history**: one radius query per store, active and archived; wins over both FL511 clients when `ROAD511_API_KEY` is set |
 | `holidays` package | `calendar` | none | federal + state holidays (`HOLIDAY_COUNTRY` / `HOLIDAY_SUBDIVISION`) |
 | Cannabis calendar | `calendar` | none | 4/20 and Green Wednesday (*major*), 7/10, Black Friday, New Year's Eve; edit `CANNABIS_CALENDAR` in `integrations/events/calendar.py` |
 | Store heartbeat | `utility`, `connectivity` | your device | a pinger at each store; silences become outage events (below) |
@@ -188,6 +189,15 @@ document publicly, but Florida has no self-service sign-up: ask FDOT through
 the FL511 feedback form (Comment type "Question") for developer API access,
 and set `FL511_API_KEY` if they grant it. Both clients are tested against
 recorded rows, not the live feeds.
+
+Road511 (portal.road511.com) aggregates the same FL511 events and adds what
+the free sources lack: `end_time` on cleared incidents and archived events
+that can be queried back in time, which is what the evidence engine needs to
+reach three comparable past events. Set `ROAD511_API_KEY` and it becomes the
+traffic source; `ROAD511_HISTORY=true` (default) also pulls archived events
+in the sync range. On the free trial that archived pull may be refused by a
+plan gate; the sync reports the gate's code as a warning and keeps the active
+events, so the trial tells you whether the history is worth the Starter plan.
 
 ### Weather (Open-Meteo + National Weather Service, no keys)
 
@@ -446,7 +456,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-110 tests. Every monetary expectation is worked out by hand in the test body.
+112 tests. Every monetary expectation is worked out by hand in the test body.
 
 An existing database from an older version is upgraded in place at start-up.
 
