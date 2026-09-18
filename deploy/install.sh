@@ -124,6 +124,12 @@ fetch_code() {
   [ -f .env ] || cp .env.example .env
   [ -f backend/.env ] || cp backend/.env.example backend/.env
   chmod 600 .env backend/.env
+  sanitize_env .env; sanitize_env backend/.env
+}
+# The examples carry "KEY=value   # explanation" lines. Not every parser strips
+# the comment (compose kept one as the value), so strip them on disk.
+sanitize_env() {
+  sed -i -E 's/^([A-Z0-9_]+=)[[:space:]]+#.*$/\1/; s/^([A-Z0-9_]+=[^#]*[^[:space:]#])[[:space:]]+#.*$/\1/' "$1"
 }
 
 # ---------------------------------------------------------------- env helpers
@@ -225,6 +231,10 @@ generate() {
     setenv backend/.env HEARTBEAT_TOKEN "$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
   fi
   hash="$(getenv .env AURORA_PASSWORD_HASH)"
+  case "$hash" in
+    *'$$'*) ;;                                   # already escaped for compose
+    '$2'*) setenv .env AURORA_PASSWORD_HASH "${hash//\$/\$\$}"; hash="escaped" ;;   # written by an older run
+  esac
   if [ -z "$hash" ]; then
     say "Dashboard password (this is what you type at the login box)"
     local p1 p2
@@ -236,7 +246,8 @@ generate() {
     done
     hash="$(docker run --rm caddy:2 caddy hash-password --plaintext "$p1" | tr -d '\r\n')"
     [[ "$hash" == \$2a\$* ]] || die "Could not hash the password (got: $hash)"
-    setenv .env AURORA_PASSWORD_HASH "$hash"
+    # compose interpolates "$name" inside .env values; "$$" is a literal "$"
+    setenv .env AURORA_PASSWORD_HASH "${hash//\$/\$\$}"
     unset p1 p2
   fi
 }

@@ -414,7 +414,7 @@ two `.env` files on the server and nowhere else.
 git clone <your private clone or this template> aurora && cd aurora
 cp backend/.env.example backend/.env          # keys, share links, HEARTBEAT_TOKEN, GEOCODER_USER_AGENT
 cp .env.example .env                          # POSTGRES_PASSWORD, AURORA_USER, AURORA_DOMAIN
-docker compose run --rm proxy caddy hash-password   # type the dashboard password; paste the hash as AURORA_PASSWORD_HASH in .env
+docker run --rm caddy:2 caddy hash-password          # type the dashboard password; paste the hash as AURORA_PASSWORD_HASH in .env with every $ doubled ($$)
 docker compose up -d --build
 docker compose run --rm api python -m app.cli sync-all --backfill-days 90 --stores "FL -"   # first load
 docker compose logs -f scheduler
