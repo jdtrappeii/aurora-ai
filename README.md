@@ -373,6 +373,19 @@ plus a copy of `/data/headset` is a full recovery set.
 
 ## Deploy on a headless server
 
+Fastest path, on the server as a user with sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jdtrappeii/aurora-ai/claude/sleepy-ritchie-hufvuf/deploy/install.sh | bash
+```
+
+`deploy/install.sh` installs Docker if needed, clones or updates the code into
+`~/aurora`, asks for each key and share link (secrets are not echoed; blank
+keeps the current value, so re-running it later only fills gaps), generates
+the Postgres password, heartbeat token and dashboard login hash, builds the
+stack, and runs the first 90-day sync. Nothing typed leaves the box: it lands
+in the two gitignored `.env` files. The manual equivalent:
+
 One box, five containers: Postgres, the API, the dashboard, a scheduler that
 runs every configured sync once a night, and a Caddy proxy that is the only
 published port and puts a login in front of everything. The API and dashboard
