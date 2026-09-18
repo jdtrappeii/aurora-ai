@@ -92,3 +92,6 @@ tr:last-child td { border-bottom: 0; }
   .promo { grid-template-columns: 1fr 1fr; }
   .grid.two { grid-template-columns: 1fr; }
 }
+
+.button-link { display: inline-block; padding: 6px 12px; border: 1px solid var(--border, #d1d5db); border-radius: 6px; font-size: 13px; text-decoration: none; color: inherit; }
+.button-link:hover { background: rgba(127, 127, 127, 0.08); }

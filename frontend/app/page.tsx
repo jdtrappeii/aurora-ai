@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { fetchDashboard, fetchStores, type Dashboard } from "@/lib/api";
+import { API_URL, fetchDashboard, fetchStores, type Dashboard } from "@/lib/api";
 import { shortDate } from "@/lib/format";
 import KpiGrid from "@/components/KpiGrid";
 import TrendChart from "@/components/TrendChart";
@@ -94,6 +94,14 @@ export default function Page() {
           <button type="submit" disabled={loading}>
             {loading ? "Loading…" : "Refresh"}
           </button>
+          <a
+            className="button-link"
+            href={`${API_URL}/api/report/weekly?format=html${asOf ? `&as_of=${asOf}` : ""}${store ? `&store=${store}` : ""}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Weekly report
+          </a>
         </form>
       </header>
 

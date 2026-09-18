@@ -1,12 +1,15 @@
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.analytics.comparisons import weekly_comparison, weekly_trend
 from app.analytics.discounts import discount_report
 from app.analytics.market import competitor_pressure, market_context
+from app.analytics.report import weekly_report
+from app.reports.render import render_html
 from app.analytics.external import event_findings, proactive_forecast, weather_intelligence
 from app.analytics.financial import financial_summary
 from app.analytics.inventory import inventory_report
@@ -101,6 +104,17 @@ def heartbeat(
 @router.get("/heartbeat/status")
 def heartbeat_status(session: Session = Depends(get_session)):
     return [s.__dict__ for s in hb.status(session)]
+
+
+@router.get("/report/weekly")
+def report_weekly(
+    as_of: date | None = None, store: str | None = None, format: str = Query("json", pattern="^(json|html)$"),
+    session: Session = Depends(get_session),
+):
+    rep = weekly_report(session, resolve_as_of(session, as_of), store)
+    if format == "html":
+        return HTMLResponse(render_html(rep))
+    return rep
 
 
 @router.get("/metrics/market")

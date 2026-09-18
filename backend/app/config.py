@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     market_centroid_lat: float = 28.1      # where statewide events are placed (Florida)
     market_centroid_lon: float = -81.6
 
+    # Weekly owner report by email (off until SMTP_HOST and REPORT_TO are set).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+    report_to: str = ""                    # comma-separated
+    report_weekday: int = 1                # ISO: 1 = Monday
+    report_store: str = ""                 # blank = all stores; a code for one store's report
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

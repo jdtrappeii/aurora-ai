@@ -253,6 +253,35 @@ four hours *major*, else *severe*. A device that was unplugged looks exactly lik
 an outage, so treat a lone finding with suspicion; the resilience value on the
 dashboard is what these events are for.
 
+## The weekly owner report
+
+Every Monday (or on demand) one page: the week versus last week and the
+four-week average, the market read, every store ranked by gross-profit
+change, the categories and products that moved, deal autopsies with what the
+feed says each promotion cost, the discount codes that cost the most, cash
+tied up in slow stock and stockout risk, external findings with their
+evidence level, competitor pressure, and what next week's calendar and
+weather hold. It ends with a data-coverage line so nobody reads a partial
+week as a collapse.
+
+```bash
+python -m app.cli weekly-report --as-of 2026-09-14                 # text to the terminal
+python -m app.cli weekly-report --out report.html                   # self-contained HTML (email-safe)
+python -m app.cli weekly-report --store HS10136 --email             # one store, sent via SMTP
+```
+
+`GET /api/report/weekly?format=html` serves the same page (the dashboard's
+"Weekly report" button). With `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` and
+`REPORT_TO` set, the scheduler emails it after the nightly sync on
+`REPORT_WEEKDAY` (1 = Monday). `REPORT_STORE` narrows it to one store.
+
+## Schema changes
+
+There is no migration tool yet and none is needed so far: start-up creates
+missing tables and adds missing columns (`ALTER TABLE … ADD COLUMN`, printed
+as `[schema] …` by the CLI), which is every schema change Aurora has made.
+A column removal or type change would need a hand migration.
+
 ## Deploy on a headless server
 
 One box, five containers: Postgres, the API, the dashboard, a scheduler that
@@ -292,9 +321,7 @@ a JSON summary of what ran, what was skipped and why, and what failed:
 Without Docker: run the API with `uvicorn`, the dashboard with `next start`
 after `npm run build`, and put `python -m app.cli sync-all` in cron. Recorded
 Headset pulls can be replayed on any machine with `headset-import-dir`, so a
-laptop pull and a server import are the same data. There are no migrations
-yet: on a schema change, drop and re-import (the recorded pulls make that a
-one-command rebuild).
+laptop pull and a server import are the same data. Schema changes apply themselves at start-up (see *Schema changes*).
 
 ## Quick start
 
@@ -340,10 +367,9 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-91 tests. Every monetary expectation is worked out by hand in the test body.
+98 tests. Every monetary expectation is worked out by hand in the test body.
 
-If you upgrade an existing SQLite database from before the Headset connector,
-delete `backend/aurora.db` and re-import: there are no migrations yet.
+An existing database from an older version is upgraded in place at start-up.
 
 ## CSV formats
 
@@ -380,6 +406,7 @@ Prices in `sale_items` are **per unit**; `discount_amount` is derived as
 | `GET /api/metrics/inventory` | Position, aging, sell-through, classification |
 | `GET /api/metrics/promotions` | Deal autopsies |
 | `GET /api/metrics/discounts?start=&end=&store=` | Discount-code report (aggregate feed) |
+| `GET /api/report/weekly?as_of=&store=&format=json\|html` | The weekly owner report |
 | `GET /api/metrics/market?as_of=` | Market context from the state weekly report |
 | `GET /api/metrics/pressure?start=&end=` | Competitor promo pressure per operator |
 | `POST /api/import/headset` | Upload one recorded Headset envelope |

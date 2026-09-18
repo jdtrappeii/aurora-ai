@@ -21,14 +21,21 @@ def next_run(now: datetime, hour_utc: int) -> datetime:
     return target if target > now else target + timedelta(days=1)
 
 
-def run_once() -> int:
+def run_once(today: datetime | None = None) -> int:
     log.info("sync-all starting")
     try:
         rc = cli_main(["sync-all"])
     except Exception:  # noqa: BLE001 — the loop must survive a bad night
         log.exception("sync-all crashed")
-        return 1
+        rc = 1
     log.info("sync-all finished rc=%s", rc)
+    today = today or datetime.now(timezone.utc)
+    if today.isoweekday() == int(os.environ.get("REPORT_WEEKDAY", "1")):
+        try:
+            log.info("weekly report starting")
+            cli_main(["weekly-report", "--email"])
+        except Exception:  # noqa: BLE001
+            log.exception("weekly report crashed")
     return rc
 
 

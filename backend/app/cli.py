@@ -25,9 +25,13 @@ Spreadsheets (OMMU market dashboard, competitor deals, promotions workbook):
 
 Everything that is configured, in one go (what the scheduler runs nightly):
     python -m app.cli sync-all [--backfill-days 90] [--days 3]
+
+The weekly owner report:
+    python -m app.cli weekly-report [--as-of 2026-09-14] [--store HS10136] [--out report.html] [--email]
 """
 import argparse
 import json
+from pathlib import Path
 from datetime import date
 from decimal import Decimal
 
@@ -45,6 +49,9 @@ from app.integrations.geocode import geocode_stores
 from app.integrations.weather import weather_sync
 from app.integrations.sheets_sync import sheets_sync, show_headers
 from app.analytics.market import competitor_pressure, market_context
+from app.analytics.report import weekly_report
+from app.reports.mail import send_report
+from app.reports.render import render_html, render_text
 
 
 def _json(obj) -> str:
@@ -169,9 +176,16 @@ def main(argv: list[str] | None = None) -> int:
     p_all.add_argument("--days", type=int, default=3, help="how many trailing days to (re)pull for daily feeds")
     p_all.add_argument("--backfill-days", type=int, default=None, help="first load: pull this many days instead")
     p_all.add_argument("--stores", default=None, help="Headset store-name filter, e.g. 'FL -'")
+    p_rep = sub.add_parser("weekly-report", help="the owner's weekly report as HTML / text / JSON, optionally emailed")
+    p_rep.add_argument("--as-of", default=None)
+    p_rep.add_argument("--store", default=None)
+    p_rep.add_argument("--out", default=None, help="write HTML here (.html) or JSON (.json); default prints text")
+    p_rep.add_argument("--email", action="store_true", help="send to REPORT_TO via SMTP settings")
     a = ap.parse_args(argv)
 
-    init_db()
+    applied = init_db()
+    for ddl in applied:
+        print(f"[schema] {ddl}")
     with SessionLocal() as session:
         if a.cmd == "init-db":
             print("database ready")
@@ -211,6 +225,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {d.store_code} {d.event_type:12s} {d.severity:8s} {d.start_time:%Y-%m-%d %H:%M} -> {d.end_time:%H:%M}  {d.description}")
         elif a.cmd == "sync-all":
             return sync_all(session, a)
+        elif a.cmd == "weekly-report":
+            from app.api.routes import resolve_as_of
+
+            as_of = resolve_as_of(session, date.fromisoformat(a.as_of) if a.as_of else None)
+            rep = weekly_report(session, as_of, a.store or (settings.report_store or None))
+            if a.out and a.out.endswith(".json"):
+                Path(a.out).write_text(_json(rep), encoding="utf-8")
+                print(f"wrote {a.out}")
+            elif a.out:
+                Path(a.out).write_text(render_html(rep), encoding="utf-8")
+                print(f"wrote {a.out}")
+            else:
+                print(render_text(rep))
+            if a.email:
+                subject = f"Aurora weekly · {rep['store_name'] or 'all stores'} · week of {rep['period']['start']}"
+                print(_json(send_report(settings, subject, render_html(rep), render_text(rep))))
         elif a.cmd == "sheets-sync":
             import httpx
 
