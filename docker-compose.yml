@@ -18,6 +18,7 @@ services:
   postgres:
     image: postgres:16
     container_name: aurora-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: aurora
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurora}
@@ -33,6 +34,7 @@ services:
   api:
     build: ./backend
     container_name: aurora-api
+    restart: unless-stopped
     env_file: backend/.env
     environment:
       DATABASE_URL: postgresql+psycopg://aurora:${POSTGRES_PASSWORD:-aurora}@postgres:5432/aurora
@@ -49,6 +51,7 @@ services:
   scheduler:
     build: ./backend
     container_name: aurora-scheduler
+    restart: unless-stopped
     env_file: backend/.env
     environment:
       DATABASE_URL: postgresql+psycopg://aurora:${POSTGRES_PASSWORD:-aurora}@postgres:5432/aurora
@@ -69,6 +72,7 @@ services:
         # the login cookie covers the API too and no token ships in the bundle
         NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-}
     container_name: aurora-web
+    restart: unless-stopped
     expose:
       - "3000"
     depends_on:
@@ -77,6 +81,7 @@ services:
   proxy:
     image: caddy:2
     container_name: aurora-proxy
+    restart: unless-stopped
     environment:
       AURORA_DOMAIN: ${AURORA_DOMAIN:-:80}
       AURORA_USER: ${AURORA_USER:-aurora}
