@@ -250,7 +250,7 @@ def test_sheets_sync_end_to_end(session):
     with mock(router) as http:
         rep = sheets_sync(session, http, cfg)
     assert rep.ran == ["market", "deals", "promotions"] and rep.warnings == [] and rep.skipped == {}
-    assert rep.details["market"] == {"rows": 6, "competition_events": 1}
+    assert rep.details["market"] == {"tab": "77", "rows": 6, "competition_events": 1}
     assert rep.details["deals"]["events"] == 3
     assert rep.details["promotions"]["rows"] == 1 and "pos_discount_name" in rep.details["promotions"]["headers"]
     kinds = {}
@@ -258,6 +258,57 @@ def test_sheets_sync_end_to_end(session):
         kinds[ev.source] = kinds.get(ev.source, 0) + 1
     assert kinds == {"ommu": 1, "deal-intel": 3}
     assert session.execute(select(Promotion)).scalar_one().weekdays == "2"
+
+
+def _workbook(tabs: dict[str, list[list]]) -> bytes:
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for name, grid in tabs.items():
+        ws = wb.create_sheet(name)
+        for row in grid:
+            ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_sync_finds_tabs_by_headers_when_no_tab_is_configured(session):
+    import csv as _csv
+    market_grid = [r for r in _csv.reader(io.StringIO(OMMU_CSV.decode()))]
+    deals_grid = [r for r in _csv.reader(io.StringIO(DEALS_CSV.decode()))]
+    market_xlsx = _workbook({"Dashboard": [["Last refresh"], ["x", "y"]], "raw_weekly": market_grid, "Trends": [["week", "a", "b"]]})
+    deals_xlsx = _workbook({"Briefing": [["hello"]], "deals_library": deals_grid})
+    promo_xlsx_bytes = _workbook({"Cover": [["Planet 13 promos"]], "FL Deals": [["Promo", "Start Date", "End Date", "Discount", "Days"], ["Try it Tuesday", date(2026, 9, 1), None, "60% off", "Tue"]]})
+    seen = []
+
+    def router(req):
+        url = str(req.url)
+        seen.append(url)
+        if "MARKET/export?format=xlsx" in url:
+            return 200, market_xlsx, {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+        if "DEALS/export?format=xlsx" in url:
+            return 200, deals_xlsx, {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+        if "sharepoint.com" in url and "download=1" in url:
+            return 200, promo_xlsx_bytes, {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+        return 404, b"", {}
+
+    cfg = settings(market_sheet_id="MARKET", deals_sheet_id="DEALS", market_self_operator="Planet 13 Florida Cannabis for the Planet",
+                   promotions_url="https://netorg-my.sharepoint.com/:x:/g/personal/someone/IQBabc?e=nsvmdG")
+    with mock(router) as http:
+        rep = sheets_sync(session, http, cfg)
+    assert rep.warnings == [] and rep.ran == ["market", "deals", "promotions"]
+    assert rep.details["market"]["tab"] == "raw_weekly" and rep.details["market"]["rows"] == 6
+    assert rep.details["deals"]["tab"] == "deals_library" and rep.details["deals"]["events"] == 3
+    assert rep.details["promotions"]["tab"] == "FL Deals" and rep.details["promotions"]["rows"] == 1
+    assert any("sharepoint.com" in u and "download=1" in u and "e=nsvmdG" in u for u in seen)
+    assert session.execute(select(Promotion)).scalar_one().weekdays == "2"
+
+
+def test_sync_reports_missing_tab_columns(session):
+    wb = _workbook({"Only": [["a", "b", "c"], [1, 2, 3]]})
+    with mock(lambda req: (200, wb, {"content-type": "application/octet-stream"})) as http:
+        rep = sheets_sync(session, http, settings(market_sheet_id="M"), which={"market"})
+    assert rep.ran == [] and "no tab has the columns" in rep.warnings[0] and "['Only']" in rep.warnings[0]
 
 
 def test_sheets_sync_skips_unconfigured_and_reports_errors(session):

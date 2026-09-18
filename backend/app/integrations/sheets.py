@@ -36,6 +36,18 @@ def norm_header(h) -> str:
     return h
 
 
+def google_sheet_xlsx_url(sheet_id: str) -> str:
+    """The whole workbook, every tab, as XLSX. Lets Aurora pick a tab by its headers."""
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+
+
+def google_sheet_xlsx(http: httpx.Client, sheet_id: str) -> bytes:
+    resp = _get(http, google_sheet_xlsx_url(sheet_id))
+    if resp.content[:2] != b"PK":
+        raise ProviderError("Google returned a sign-in page instead of the workbook: share the sheet as 'anyone with the link can view'")
+    return resp.content
+
+
 def google_sheet_csv_url(sheet_id: str, tab: str | None) -> str:
     base = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
     if tab and tab.isdigit():
@@ -63,13 +75,34 @@ def google_sheet_csv(http: httpx.Client, sheet_id: str, tab: str | None) -> byte
 
 def onedrive_direct_url(share_url: str) -> str:
     """OneDrive's shares API accepts a base64url-encoded share link with a 'u!'
-    prefix and serves the file at /root/content, no token needed for anonymous links."""
+    prefix and serves the file at /root/content, no token needed for anonymous
+    personal links."""
     token = base64.urlsafe_b64encode(share_url.encode()).decode().rstrip("=")
     return f"https://api.onedrive.com/v1.0/shares/u!{token}/root/content"
 
 
+def sharepoint_download_url(share_url: str) -> str:
+    """A OneDrive for Business / SharePoint 'anyone with the link' URL serves the
+    file itself when `download=1` is appended."""
+    u = httpx.URL(share_url)
+    return str(u.copy_add_param("download", "1")) if "download" not in u.params else share_url
+
+
 def onedrive_download(http: httpx.Client, share_url: str) -> bytes:
-    return _get(http, onedrive_direct_url(share_url)).content
+    host = httpx.URL(share_url).host or ""
+    candidates = [sharepoint_download_url(share_url), onedrive_direct_url(share_url)] if "sharepoint" in host \
+        else [onedrive_direct_url(share_url), sharepoint_download_url(share_url)]
+    last = None
+    for url in candidates:
+        try:
+            resp = _get(http, url)
+        except ProviderError as e:
+            last = e
+            continue
+        if resp.content[:2] == b"PK" or "spreadsheetml" in resp.headers.get("content-type", "") or "text/csv" in resp.headers.get("content-type", ""):
+            return resp.content
+        last = ProviderError("share link returned a web page, not the file: set the link to 'anyone with the link' and try again")
+    raise last or ProviderError("could not download the share link")
 
 
 def fetch(http: httpx.Client, location: str, tab: str | None = None) -> tuple[bytes, str]:
@@ -107,6 +140,32 @@ def read_table(data: bytes, filename: str, sheet: str | None = None, header_row:
         text = data.decode("utf-8-sig", errors="replace")
         raw = [row for row in csv.reader(io.StringIO(text))]
     return rows_from_grid(raw, header_row)
+
+
+def workbook_tabs(data: bytes) -> dict[str, list[dict]]:
+    """Every worksheet of an XLSX as rows-by-tab-name."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    out = {}
+    for name in wb.sheetnames:
+        raw = [list(r) for r in wb[name].iter_rows(values_only=True)]
+        out[name] = rows_from_grid(raw) if raw else []
+    return out
+
+
+def pick_tab(tabs: dict[str, list[dict]], required: tuple[str, ...], preferred: str | None = None) -> tuple[str, list[dict]]:
+    """The tab named `preferred` if given, else the first tab whose headers contain
+    every name in `required` (normalised)."""
+    if preferred:
+        for name, rows in tabs.items():
+            if name.casefold().strip() == preferred.casefold().strip():
+                return name, rows
+        raise ProviderError(f"no tab named {preferred!r}; tabs are {list(tabs)}")
+    for name, rows in tabs.items():
+        if rows and all(r in rows[0] for r in required):
+            return name, rows
+    raise ProviderError(f"no tab has the columns {list(required)}; tabs are {list(tabs)}")
 
 
 def rows_from_grid(raw: list[list], header_row: int | None = None) -> list[dict]:

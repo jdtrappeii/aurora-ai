@@ -23,7 +23,18 @@ from app.importers.market import deals_to_events, import_market_rows, market_com
 from app.importers.promotions_sheet import import_promotion_rows
 from app.integrations.events.common import ProviderError
 from app.integrations.events.sync import upsert_events
-from app.integrations.sheets import fetch, google_sheet_csv, read_table
+from app.integrations.sheets import fetch, google_sheet_csv, google_sheet_xlsx, pick_tab, read_table, workbook_tabs
+
+MARKET_REQUIRED = ("week_ending", "mmtc_name_canonical")
+DEALS_REQUIRED = ("deal_id", "operator_canonical")
+PROMO_REQUIRED_ANY = (("promo",), ("promotion",), ("name",), ("deal",), ("promo_type",), ("offer",))
+
+
+def _google_rows(http, sheet_id: str, tab: str, required: tuple[str, ...]) -> tuple[str, list[dict]]:
+    """A named / gid tab as CSV, or the whole workbook with the tab found by headers."""
+    if tab:
+        return tab, read_table(google_sheet_csv(http, sheet_id, tab), "sheet.csv")
+    return pick_tab(workbook_tabs(google_sheet_xlsx(http, sheet_id)), required)
 
 
 @dataclass
@@ -49,12 +60,11 @@ def sheets_sync(session: Session, http: httpx.Client, settings, which: set[str] 
             rep.skipped["market"] = "MARKET_SHEET_ID not set"
         else:
             try:
-                data = google_sheet_csv(http, settings.market_sheet_id, settings.market_sheet_tab or None)
-                rows = read_table(data, "market.csv")
+                tab, rows = _google_rows(http, settings.market_sheet_id, settings.market_sheet_tab, MARKET_REQUIRED)
                 rep.results.append(import_market_rows(session, rows, settings.market_self_operator or None))
                 drafts = market_competition_events(session, centroid)
                 rep.results.append(upsert_events(session, drafts, "ommu-competition"))
-                rep.details["market"] = {"rows": len(rows), "competition_events": len(drafts)}
+                rep.details["market"] = {"tab": tab, "rows": len(rows), "competition_events": len(drafts)}
                 rep.ran.append("market")
             except ProviderError as e:
                 rep.warnings.append(f"market: {e}")
@@ -64,11 +74,10 @@ def sheets_sync(session: Session, http: httpx.Client, settings, which: set[str] 
             rep.skipped["deals"] = "DEALS_SHEET_ID not set"
         else:
             try:
-                data = google_sheet_csv(http, settings.deals_sheet_id, settings.deals_sheet_tab or None)
-                rows = read_table(data, "deals.csv")
+                tab, rows = _google_rows(http, settings.deals_sheet_id, settings.deals_sheet_tab, DEALS_REQUIRED)
                 dr = deals_to_events(rows, centroid, settings.market_self_operator or None)
                 rep.results.append(upsert_events(session, dr.drafts, "deal-intel"))
-                rep.details["deals"] = {"rows": len(rows), **dr.to_dict()}
+                rep.details["deals"] = {"tab": tab, "rows": len(rows), **dr.to_dict()}
                 rep.ran.append("deals")
             except ProviderError as e:
                 rep.warnings.append(f"deals: {e}")
@@ -79,10 +88,25 @@ def sheets_sync(session: Session, http: httpx.Client, settings, which: set[str] 
         else:
             try:
                 data, name = fetch(http, settings.promotions_url, settings.promotions_sheet or None)
-                rows = read_table(data, name, settings.promotions_sheet or None)
+                if data[:2] == b"PK":
+                    tabs = workbook_tabs(data)
+                    tab, rows = None, []
+                    if settings.promotions_sheet:
+                        tab, rows = pick_tab(tabs, (), settings.promotions_sheet)
+                    else:
+                        for req in PROMO_REQUIRED_ANY:
+                            try:
+                                tab, rows = pick_tab(tabs, req)
+                                break
+                            except ProviderError:
+                                continue
+                        if tab is None:
+                            tab, rows = next(iter(tabs.items()))
+                else:
+                    tab, rows = name, read_table(data, name)
                 r = import_promotion_rows(session, rows, settings.promotions_column_map or None, source="sheet")
                 rep.results.append(r)
-                rep.details["promotions"] = {"rows": len(rows), "headers": sorted(rows[0].keys()) if rows else []}
+                rep.details["promotions"] = {"tab": tab, "rows": len(rows), "headers": sorted(rows[0].keys()) if rows else []}
                 rep.ran.append("promotions")
             except ProviderError as e:
                 rep.warnings.append(f"promotions: {e}")
@@ -92,5 +116,8 @@ def sheets_sync(session: Session, http: httpx.Client, settings, which: set[str] 
 def show_headers(http: httpx.Client, location: str, tab: str | None = None) -> dict:
     """For configuring PROMOTIONS_COLUMN_MAP: the normalised headers and the first rows."""
     data, name = fetch(http, location, tab)
+    if data[:2] == b"PK":
+        tabs = workbook_tabs(data)
+        return {name: {"rows": len(rows), "headers": sorted(rows[0].keys()) if rows else [], "sample": rows[:2]} for name, rows in tabs.items()}
     rows = read_table(data, name, tab)
     return {"rows": len(rows), "headers": sorted(rows[0].keys()) if rows else [], "sample": rows[:3]}

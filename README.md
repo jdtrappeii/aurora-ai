@@ -217,10 +217,13 @@ python -m app.cli market --as-of 2026-09-11
 | Competitor deals library (observed deals, any source) | `DEALS_SHEET_ID` + tab | operator, date, offer, type, hook, audience, confidence | `competition` events with severity by depth (40%+ or BOGO → major, 20%+ → moderate) and a **promo pressure** table per operator, this period vs last |
 | Promotions workbook (OneDrive / SharePoint) | `PROMOTIONS_URL` | name, start, end, discount, weekdays, stores, SKUs / category, **POS discount names** | `promotions` with recurrence (`weekdays`) and store scope; the POS names join each promotion to `discount_daily`, so the deal autopsy shows what the feed says it cost per scheduled day |
 
-Google Sheets are read as CSV from the share link (set the sheet to *anyone
-with the link can view*; pick the tab by name or by the `gid` in its URL). A
-OneDrive / SharePoint *anyone with the link* URL is resolved to the file with
-no app registration. Column headers are matched by name with aliases (`Promo`,
+Google Sheets are read from the share link (set the sheet to *anyone with the
+link can view*). Leave the tab setting blank and Aurora downloads the workbook
+and picks the tab by its columns (`week_ending` + `mmtc_name_canonical` for the
+market report, `deal_id` + `operator_canonical` for deals); or name the tab or
+give its `gid`. A OneDrive / SharePoint *anyone with the link* URL is fetched
+with `download=1`, no app registration; the promotions tab is found by a
+`Promo` / `Promotion` / `Name` column unless `PROMOTIONS_SHEET` names it. Column headers are matched by name with aliases (`Promo`,
 `Start Date`, `Days`, `Stores`, `POS Discount Name`…); an unusual layout gets
 `PROMOTIONS_COLUMN_MAP`. Rows with no name or no start date are reported and
 skipped; the same deal on several rows (one per store) is merged.
@@ -294,7 +297,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-86 tests. Every monetary expectation is worked out by hand in the test body.
+88 tests. Every monetary expectation is worked out by hand in the test body.
 
 If you upgrade an existing SQLite database from before the Headset connector,
 delete `backend/aurora.db` and re-import: there are no migrations yet.
