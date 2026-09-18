@@ -64,10 +64,11 @@ class ImportResult:
     inserted: int = 0
     updated: int = 0
     skipped: int = 0
+    removed: int = 0
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {"kind": self.kind, "inserted": self.inserted, "updated": self.updated, "skipped": self.skipped, "errors": self.errors}
+        return {"kind": self.kind, "inserted": self.inserted, "updated": self.updated, "skipped": self.skipped, "removed": self.removed, "errors": self.errors}
 
 
 # ---------- parsing helpers ----------

@@ -224,6 +224,14 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
                     setattr(promo, k, v)
                 res.updated += 1
             touched.add(promo)
+    # The sheet is the source of truth for its own rows: anything it no longer
+    # lists (a deleted row, or a deal that was re-split) goes away. Manual and
+    # CSV promotions are untouched.
+    if touched:
+        for promo in list(existing.values()):
+            if promo.source == source and promo not in touched:
+                session.delete(promo)
+                res.removed += 1
     session.commit()
     return res
 

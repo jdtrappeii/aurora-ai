@@ -349,8 +349,15 @@ def test_promotion_calendar_rows_are_single_days_and_long_names(session):
     assert [(p.start_date, p.end_date, p.discount_value) for p in ms] == [(date(2026, 1, 5), date(2026, 1, 6), Decimal("60")), (date(2026, 2, 3), date(2026, 2, 3), Decimal("60"))]
     # re-import is idempotent
     r2 = import_promotion_rows(session, read_table(data, "cal.xlsx"))
-    assert (r2.inserted, r2.updated) == (0, 7)
+    assert (r2.inserted, r2.updated, r2.removed) == (0, 7, 0)
     assert len(session.execute(select(Promotion)).scalars().all()) == 6
+    # a deal dropped from the sheet is dropped from Aurora; a manual one survives
+    session.add(Promotion(name="Manual deal", start_date=date(2026, 3, 1), end_date=date(2026, 3, 1), discount_type="amount", discount_value=Decimal("0"), source="manual"))
+    session.commit()
+    data2 = promo_xlsx([("Manager's Special", date(2026, 2, 3), None, "60% off", "", "", "", "", "")])
+    r3 = import_promotion_rows(session, read_table(data2, "cal.xlsx"))
+    assert (r3.inserted, r3.updated, r3.removed) == (0, 1, 5)
+    assert sorted(p.name for p in session.execute(select(Promotion)).scalars()) == ["Manager's Special", "Manual deal"]
 
 
 def test_init_db_migrates_old_promotions_schema(tmp_path):
