@@ -22,6 +22,9 @@ Spreadsheets (OMMU market dashboard, competitor deals, promotions workbook):
     python -m app.cli sheets-sync [--only market|deals|promotions]
     python -m app.cli sheets-headers <share link or path> [--tab NAME]   # to configure PROMOTIONS_COLUMN_MAP
     python -m app.cli market [--as-of 2026-09-11]
+
+Everything that is configured, in one go (what the scheduler runs nightly):
+    python -m app.cli sync-all [--backfill-days 90] [--days 3]
 """
 import argparse
 import json
@@ -46,6 +49,69 @@ from app.analytics.market import competitor_pressure, market_context
 
 def _json(obj) -> str:
     return json.dumps(obj, indent=2, default=lambda o: str(o) if isinstance(o, Decimal) else o)
+
+
+def sync_all(session, a, http=None) -> int:
+    """One nightly pass. Each step runs only when configured and never stops the
+    others; the summary at the end says what ran, what was skipped and why."""
+    import httpx
+    from datetime import timedelta
+
+    from app.integrations.events.sync import events_sync, upsert_events
+    from app.integrations.sheets_sync import sheets_sync
+    from app.integrations.weather import weather_sync
+
+    today = date.today()
+    days = a.backfill_days or a.days
+    start, end = today - timedelta(days=days), today - timedelta(days=1)
+    summary: dict = {"window": f"{start} to {end}", "steps": {}}
+    failures = 0
+
+    def step(name, fn):
+        nonlocal failures
+        try:
+            summary["steps"][name] = fn()
+        except Exception as e:  # noqa: BLE001 — one bad source must not block the rest
+            failures += 1
+            summary["steps"][name] = f"FAILED: {type(e).__name__}: {e}"
+            print(f"[sync-all] {name} failed: {e}")
+
+    own_client = http is None
+    http = http or httpx.Client(timeout=90)
+    try:
+        if settings.headset_mcp_url:
+            def headset():
+                from app.integrations.headset.client import client_from_settings
+                from app.integrations.headset.pull import headset_sync
+
+                rep = headset_sync(client_from_settings(), session, start, end, store_filter=a.stores,
+                                   include_inventory=True, record_dir=settings.headset_data_dir)
+                _print_results(rep.results)
+                d = rep.to_dict()
+                return {k: d[k] for k in ("stores", "calls", "warnings", "reconciliation_missing", "reconciled_days")}
+            step("headset", headset)
+        else:
+            summary["steps"]["headset"] = "skipped: HEADSET_MCP_URL not set (replay recorded pulls with headset-import-dir)"
+
+        step("geocode", lambda: geocode_stores(session, http, settings.geocoder_user_agent).to_dict())
+        step("weather", lambda: {k: v for k, v in weather_sync(
+            session, http, start, today + timedelta(days=7), settings.geocoder_user_agent,
+            forecast_url=settings.open_meteo_forecast_url, archive_url=settings.open_meteo_archive_url, nws_url=settings.nws_alerts_url,
+        ).to_dict().items() if k != "results"})
+        step("events", lambda: {k: v for k, v in events_sync(session, start, today + timedelta(days=30), http, settings).to_dict().items() if k != "results"})
+        step("sheets", lambda: {k: v for k, v in sheets_sync(session, http, settings).to_dict().items() if k != "results"})
+        step("heartbeats", lambda: upsert_events(session, hb.heartbeat_events(session, settings.heartbeat_gap_minutes), "heartbeat").to_dict())
+        step("reconcile", lambda: {
+            "days": len(rows := reconcile(session)),
+            "ok": sum(1 for r in rows if r["coverage"] == "ok"),
+            "mismatch": [f"{r['store']} {r['date']}" for r in rows if r["coverage"] == "mismatch"],
+            "missing": sum(1 for r in rows if r["coverage"] == "missing"),
+        })
+    finally:
+        if own_client:
+            http.close()
+    print(_json(summary))
+    return 1 if failures else 0
 
 
 def _print_results(results) -> None:
@@ -99,6 +165,10 @@ def main(argv: list[str] | None = None) -> int:
     p_sh = sub.add_parser("sheets-headers", help="show a spreadsheet's headers and first rows")
     p_sh.add_argument("location")
     p_sh.add_argument("--tab", default=None)
+    p_all = sub.add_parser("sync-all", help="run every configured sync: Headset, weather, events, sheets, heartbeats, geocode, reconcile")
+    p_all.add_argument("--days", type=int, default=3, help="how many trailing days to (re)pull for daily feeds")
+    p_all.add_argument("--backfill-days", type=int, default=None, help="first load: pull this many days instead")
+    p_all.add_argument("--stores", default=None, help="Headset store-name filter, e.g. 'FL -'")
     a = ap.parse_args(argv)
 
     init_db()
@@ -139,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
             _print_results([r])
             for d in drafts:
                 print(f"  {d.store_code} {d.event_type:12s} {d.severity:8s} {d.start_time:%Y-%m-%d %H:%M} -> {d.end_time:%H:%M}  {d.description}")
+        elif a.cmd == "sync-all":
+            return sync_all(session, a)
         elif a.cmd == "sheets-sync":
             import httpx
 

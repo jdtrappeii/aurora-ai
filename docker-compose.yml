@@ -1,15 +1,70 @@
+# Aurora on one box: Postgres, the API, the dashboard, and a scheduler that runs
+# every configured sync nightly. Secrets and links live in backend/.env (never
+# in the image or the repo). Recorded Headset pulls persist in the data volume.
+#
+#   cp backend/.env.example backend/.env   # fill in keys and links
+#   docker compose up -d --build
+#   docker compose run --rm api python -m app.cli sync-all --backfill-days 90   # first load
+#   open http://<server>:3000
+
 services:
   postgres:
     image: postgres:16
     container_name: aurora-postgres
     environment:
       POSTGRES_USER: aurora
-      POSTGRES_PASSWORD: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurora}
       POSTGRES_DB: aurora
-    ports:
-      - "5432:5432"
     volumes:
       - aurora_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    container_name: aurora-api
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://aurora:${POSTGRES_PASSWORD:-aurora}@postgres:5432/aurora
+      HEADSET_DATA_DIR: /data/headset
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    volumes:
+      - aurora_data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    build: ./backend
+    container_name: aurora-scheduler
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://aurora:${POSTGRES_PASSWORD:-aurora}@postgres:5432/aurora
+      HEADSET_DATA_DIR: /data/headset
+      SYNC_HOUR_UTC: ${SYNC_HOUR_UTC:-08}   # 08:00 UTC = 4am Eastern
+    volumes:
+      - aurora_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m app.scheduler
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+    container_name: aurora-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
 
 volumes:
   aurora_pgdata:
+  aurora_data:

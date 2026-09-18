@@ -253,6 +253,45 @@ four hours *major*, else *severe*. A device that was unplugged looks exactly lik
 an outage, so treat a lone finding with suspicion; the resilience value on the
 dashboard is what these events are for.
 
+## Deploy on a headless server
+
+One box, four containers: Postgres, the API, the dashboard, and a scheduler
+that runs every configured sync once a night. Secrets and share links live in
+`backend/.env` on the server and nowhere else.
+
+```bash
+git clone <your private clone or this template> aurora && cd aurora
+cp backend/.env.example backend/.env          # keys, share links, HEARTBEAT_TOKEN, GEOCODER_USER_AGENT
+export POSTGRES_PASSWORD='<strong password>'  # or put it in a .env next to docker-compose.yml
+export PUBLIC_API_URL=http://<server-ip>:8000  # what browsers will call
+export CORS_ORIGINS=http://<server-ip>:3000
+docker compose up -d --build
+docker compose run --rm api python -m app.cli sync-all --backfill-days 90 --stores "FL -"   # first load
+docker compose logs -f scheduler
+```
+
+Open `http://<server-ip>:3000`. The scheduler service runs `sync-all` at
+`SYNC_HOUR_UTC` (default 08:00 UTC, 4am Eastern) and once on start-up. Each
+step runs only when configured, never blocks the others, and the run ends with
+a JSON summary of what ran, what was skipped and why, and what failed:
+
+| Step | Needs | What it does |
+|---|---|---|
+| headset | `HEADSET_MCP_URL` + token | store-day totals, product-grain sales, discount codes, inventory for the trailing days; raw pulls recorded under `/data/headset` |
+| geocode | store addresses | coordinates for any store still without them |
+| weather | nothing | Open-Meteo hourly + 7-day forecast, NWS alerts |
+| events | keys per provider | Ticketmaster, SeatGeek, FL511 for the next 30 days; holidays + cannabis calendar always |
+| sheets | share links | market report, competitor deals, promotions workbook |
+| heartbeats | device pings | silences become outage events |
+| reconcile | nothing | product lines vs feed totals; missing days listed |
+
+Without Docker: run the API with `uvicorn`, the dashboard with `next start`
+after `npm run build`, and put `python -m app.cli sync-all` in cron. Recorded
+Headset pulls can be replayed on any machine with `headset-import-dir`, so a
+laptop pull and a server import are the same data. There are no migrations
+yet: on a schema change, drop and re-import (the recorded pulls make that a
+one-command rebuild).
+
 ## Quick start
 
 ### Backend
@@ -297,7 +336,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-88 tests. Every monetary expectation is worked out by hand in the test body.
+91 tests. Every monetary expectation is worked out by hand in the test body.
 
 If you upgrade an existing SQLite database from before the Headset connector,
 delete `backend/aurora.db` and re-import: there are no migrations yet.
