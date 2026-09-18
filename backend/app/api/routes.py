@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -113,6 +114,39 @@ def heartbeat(
 @router.get("/heartbeat/status")
 def heartbeat_status(session: Session = Depends(get_session)):
     return [s.__dict__ for s in hb.status(session)]
+
+
+class AnalystTurn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str
+
+
+class AnalystQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    scope: str | None = None
+    as_of: date | None = None
+    history: list[AnalystTurn] = Field(default_factory=list, max_length=20)
+
+
+@router.post("/analyst")
+def analyst(q: AnalystQuestion, session: Session = Depends(get_session)):
+    """Ask the analyst. Read-only: every number comes from Aurora's own tools."""
+    import anthropic
+
+    from app.analyst.agent import ask
+
+    if not (settings.anthropic_api_key or __import__("os").environ.get("ANTHROPIC_API_KEY") or __import__("os").environ.get("ANTHROPIC_AUTH_TOKEN")):
+        raise HTTPException(503, "analyst disabled: set ANTHROPIC_API_KEY on the server")
+    try:
+        return ask(session, q.question, q.scope, q.as_of, [t.model_dump() for t in q.history]).to_dict()
+    except anthropic.AuthenticationError:
+        raise HTTPException(503, "analyst: invalid ANTHROPIC_API_KEY")
+    except anthropic.RateLimitError:
+        raise HTTPException(429, "analyst: rate limited, try again shortly")
+    except anthropic.APIStatusError as e:
+        raise HTTPException(502, f"analyst: upstream error {e.status_code}")
+    except anthropic.APIConnectionError:
+        raise HTTPException(502, "analyst: cannot reach the Claude API")
 
 
 @router.get("/report/weekly")

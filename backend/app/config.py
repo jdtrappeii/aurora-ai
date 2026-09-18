@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     market_centroid_lat: float = 28.1      # where statewide events are placed (Florida)
     market_centroid_lon: float = -81.6
 
+    # The analyst (Claude over Aurora's read-only tools). ANTHROPIC_API_KEY in the
+    # environment is enough; the setting exists for explicit injection.
+    anthropic_api_key: str = ""
+    analyst_model: str = "claude-opus-5"
+    analyst_effort: str = "high"          # low | medium | high | xhigh | max
+    analyst_max_iterations: int = 24      # model turns per question (each may call several tools)
+
     # Weekly owner report by email (off until SMTP_HOST and REPORT_TO are set).
     smtp_host: str = ""
     smtp_port: int = 587

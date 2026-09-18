@@ -12,6 +12,7 @@ Headset connector:
     python -m app.cli headset-reconcile [--store HS10136]      # product lines vs store-day totals
 
 External events (free stack):
+    python -m app.cli gmb-import data/gmb/locations.csv           # Google Business Profile export -> addresses, hours, opening dates
     python -m app.cli geocode-stores                            # Nominatim, stores with an address and no coordinates
     python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15   # Ticketmaster / SeatGeek / FL511 / calendar
     python -m app.cli heartbeat-events [--min-gap 5]           # silences between heartbeat runs -> outage events
@@ -28,6 +29,9 @@ Everything that is configured, in one go (what the scheduler runs nightly):
 
 The weekly owner report:
     python -m app.cli weekly-report [--as-of 2026-09-14] [--store HS10136] [--out report.html] [--email]
+
+Ask the analyst (needs ANTHROPIC_API_KEY):
+    python -m app.cli ask "why was Pace down on Tuesday" [--scope state:FL] [--as-of 2026-09-15]
 """
 import argparse
 import json
@@ -152,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
     p_hd.add_argument("directory")
     p_hr = sub.add_parser("headset-reconcile")
     p_hr.add_argument("--store", default=None)
+    p_gmb = sub.add_parser("gmb-import", help="match a Google Business Profile locations export to stores")
+    p_gmb.add_argument("path")
     p_geo = sub.add_parser("geocode-stores", help="fill missing store coordinates from their address (Nominatim)")
     p_geo.add_argument("--store", action="append", default=None, help="limit to these store codes")
     p_ev = sub.add_parser("events-sync", help="pull local events, traffic and the calendar into external_events")
@@ -181,6 +187,11 @@ def main(argv: list[str] | None = None) -> int:
     p_rep.add_argument("--store", default=None)
     p_rep.add_argument("--out", default=None, help="write HTML here (.html) or JSON (.json); default prints text")
     p_rep.add_argument("--email", action="store_true", help="send to REPORT_TO via SMTP settings")
+    p_ask = sub.add_parser("ask", help="ask the analyst a question")
+    p_ask.add_argument("question")
+    p_ask.add_argument("--scope", default=None, help="store code, state:FL, or blank for DEFAULT_SCOPE")
+    p_ask.add_argument("--as-of", default=None)
+    p_ask.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
 
     applied = init_db()
@@ -204,6 +215,10 @@ def main(argv: list[str] | None = None) -> int:
                       f"(diff {r['revenue_diff']}); gross profit diff {r['gross_profit_diff']}")
             for r in missing:
                 print(f"  MISSING  {r['store']} {r['date']}: feed revenue {r['feed_revenue']}, no product pull")
+        elif a.cmd == "gmb-import":
+            from app.importers.gmb import import_gmb_locations
+
+            _print_results([import_gmb_locations(session, a.path)])
         elif a.cmd == "geocode-stores":
             import httpx
 
@@ -225,6 +240,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {d.store_code} {d.event_type:12s} {d.severity:8s} {d.start_time:%Y-%m-%d %H:%M} -> {d.end_time:%H:%M}  {d.description}")
         elif a.cmd == "sync-all":
             return sync_all(session, a)
+        elif a.cmd == "ask":
+            from app.analyst.agent import ask, trace_text
+
+            res = ask(session, a.question, a.scope, date.fromisoformat(a.as_of) if a.as_of else None)
+            if a.json:
+                print(_json(res.to_dict()))
+            else:
+                print(res.answer)
+                print("\nLooked at:")
+                print(trace_text(res.trace))
+                print(f"\n[{res.model} · {res.turns} turns · {res.usage['input_tokens']} in / {res.usage['output_tokens']} out · cache read {res.usage['cache_read_input_tokens']}]")
         elif a.cmd == "weekly-report":
             from app.api.routes import resolve_as_of
 

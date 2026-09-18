@@ -308,3 +308,41 @@ export async function fetchStores(): Promise<StoreList> {
   if (!res.ok) return { default: null, scopes: [], stores: [] };
   return res.json();
 }
+
+export interface AnalystTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AnalystTrace {
+  tool?: string;
+  input?: Record<string, unknown>;
+  note?: string;
+}
+
+export interface AnalystAnswer {
+  answer: string;
+  trace: AnalystTrace[];
+  usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number };
+  stop_reason: string | null;
+  model: string | null;
+  turns: number;
+}
+
+export async function askAnalyst(question: string, scope?: string, asOf?: string, history: AnalystTurn[] = []): Promise<AnalystAnswer> {
+  const res = await fetch(`${API_URL}/api/analyst`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, scope: scope || null, as_of: asOf || null, history }),
+  });
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* keep status text */
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}

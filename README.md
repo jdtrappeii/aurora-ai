@@ -253,6 +253,43 @@ four hours *major*, else *severe*. A device that was unplugged looks exactly lik
 an outage, so treat a lone finding with suspicion; the resilience value on the
 dashboard is what these events are for.
 
+## Ask Aurora: the analyst
+
+"Why was Pace down on Tuesday?" "Which stores lost the most gross profit and
+did we move with the market?" The analyst is Claude (`claude-opus-5`, adaptive
+thinking, effort `ANALYST_EFFORT`) with sixteen **read-only tools** that call
+the same deterministic analytics as the dashboard: weekly summary and trend,
+store ranking, categories, products, inventory, promotions, discount codes,
+market, competitor deals, external findings, weather effects, forecast,
+upcoming events, store list, and data coverage. It never computes money
+itself; every figure in an answer came back from a tool, and the answer
+carries the list of tools it looked at. Evidence levels are reported as
+graded, never promoted. The system prompt is stable (cached); the day and
+the default scope go in the question.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+python -m app.cli ask "which stores lost the most gross profit this week and why" --scope state:FL
+```
+
+`POST /api/analyst {question, scope?, as_of?, history?}` powers the "Ask
+Aurora" panel on the dashboard (conversation history is kept in the browser
+and sent back, at most ten turns). Server-side refusal fallbacks are enabled;
+a refusal, a cut-off answer, or a run that stops on tool calls is reported as
+such rather than hidden. The route answers 503 until `ANTHROPIC_API_KEY` is
+set on the server.
+
+## Google Business Profile export
+
+Business Profile Manager's locations export (the `Ungrouped_locations-*.csv`)
+has no coordinates, but it has the clean street address, opening hours, the
+opening date and the GMB store code. `python -m app.cli gmb-import
+<file.csv>` matches rows to Headset stores by postal code (then by the
+locality appearing in the store name; ambiguous rows are reported, never
+guessed) and fills address, state, `gmb_code`, phone, `opened_on` and `hours`.
+Run `geocode-stores` afterwards. Store rankings then carry `weeks_open` and an
+`is_new` flag (under 26 weeks), so a new store's climb is read as a climb.
+
 ## State view, then the store
 
 Every analytics call takes one scope: nothing (everything), a state
@@ -303,12 +340,13 @@ What Aurora needs from outside the repository, in the order it pays off:
 | 2 | `DEFAULT_SCOPE=state:FL` and a Headset store filter of `FL -` on the first backfill | `backend/.env` | the state view blends other states |
 | 3 | Google Sheets shared "anyone with the link", SharePoint link "anyone with the link" | `MARKET_SHEET_ID`, `DEALS_SHEET_ID`, `PROMOTIONS_URL` | no market read, no competitor pressure, promotions by CSV only |
 | 4 | A POS discount name column in the promotions workbook | the workbook | promotions import but cannot be measured against the feed |
-| 5 | Store coordinates: `geocode-stores` (addresses come with the Headset store import) or a GMB export into `stores.csv` | database | no local events, traffic or weather per store |
+| 5 | Store coordinates: `gmb-import` the Business Profile export (addresses, hours, opening dates), then `geocode-stores` | database | no local events, traffic or weather per store |
 | 6 | Free keys: Ticketmaster, SeatGeek, FL511 | `backend/.env` | calendar only |
 | 7 | SMTP credentials and recipients | `SMTP_*`, `REPORT_TO` | report on the dashboard only, no Monday email |
 | 8 | Login password hash, Postgres password, optional hostname for HTTPS | `.env` next to compose | the stack refuses to start without the hash |
 | 9 | Heartbeat devices at stores (later) | `HEARTBEAT_TOKEN` | outages from utility maps or POS gaps only |
 | 10 | Dutchie location keys (when approved) | next connector | no receipt-level detail; aggregate feed continues |
+| 11 | `ANTHROPIC_API_KEY` | `backend/.env` | no "Ask Aurora"; dashboard and report unaffected |
 
 Backups: the Postgres volume is the system of record for imported data, but
 every Headset pull is also recorded as JSON under the data volume, so
@@ -400,7 +438,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-102 tests. Every monetary expectation is worked out by hand in the test body.
+108 tests. Every monetary expectation is worked out by hand in the test body.
 
 An existing database from an older version is upgraded in place at start-up.
 
@@ -440,6 +478,7 @@ Prices in `sale_items` are **per unit**; `discount_amount` is derived as
 | `GET /api/metrics/promotions` | Deal autopsies |
 | `GET /api/metrics/discounts?start=&end=&store=` | Discount-code report (aggregate feed) |
 | `GET /api/report/weekly?as_of=&store=&format=json\|html` | The weekly owner report |
+| `POST /api/analyst` | Ask the analyst (question, scope, as_of, history) |
 | `GET /api/metrics/market?as_of=` | Market context from the state weekly report |
 | `GET /api/metrics/pressure?start=&end=` | Competitor promo pressure per operator |
 | `POST /api/import/headset` | Upload one recorded Headset envelope |
@@ -469,7 +508,7 @@ a concert, two holidays, a competitor opening, and a 7-day forecast.
 |---|---|
 | **V1** | CSV imports, Postgres schema, deterministic analytics, dashboard, external events + weather + baseline + evidence |
 | **V1.5 (this)** | Headset connector (sync, recorded envelopes, exact aggregate totals, reconciliation, discount-code report); free event stack (Ticketmaster, SeatGeek, FL511, holiday + cannabis calendar, store heartbeats, Nominatim geocoding); weather from Open-Meteo + NWS alerts; live spreadsheets (state market report, competitor deals, promotions workbook) |
-| V2 | Claude AI analyst with read-only tools over these endpoints; recommendation engine; evidence-based answers |
+| **V2 (this)** | Claude analyst with read-only tools over the analytics; evidence-graded answers with a trace |
 | V3 | Automatic QuickBooks and Dutchie POS synchronization; scheduled nightly Headset / weather / events sync |
 | V4 | Scheduled weekly owner report, forecasting, vendor intelligence |
 | Later | Metrc integration only when there is a clear operational need |

@@ -45,13 +45,17 @@ def _store_codes(session: Session) -> list[tuple[str, str]]:
 def store_ranking(session: Session, current: Period, prev: Period, limit: int = 40, scope: str | None = None) -> list[dict]:
     """Every store in scope with sales in either period, ranked by gross-profit change."""
     rows = []
-    for code, name in [(s.code, s.name) for s in stores_in_scope(session, scope if is_state(scope) else None)]:
+    for st in stores_in_scope(session, scope if is_state(scope) else None):
+        code, name = st.code, st.name
         cur = financial_summary(session, current, code)
         before = financial_summary(session, prev, code)
         if cur.revenue == 0 and before.revenue == 0:
             continue
+        weeks_open = ((current.end - st.opened_on).days // 7) if st.opened_on else None
         rows.append({
-            "store": code, "name": name,
+            "store": code, "name": name, "state": st.state,
+            "opened_on": st.opened_on.isoformat() if st.opened_on else None,
+            "weeks_open": weeks_open, "is_new": bool(weeks_open is not None and weeks_open < 26),
             "revenue": cur.revenue, "gross_profit": cur.gross_profit, "gross_margin": cur.gross_margin,
             "transactions": cur.transactions, "discount_rate": cur.discount_rate,
             "previous_revenue": before.revenue, "previous_gross_profit": before.gross_profit,

@@ -36,6 +36,10 @@ class Store(Base):
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)  # one line, for geocoding
     state: Mapped[str | None] = mapped_column(String(8), nullable=True)      # "FL": the drill-down level above a store
+    gmb_code: Mapped[str | None] = mapped_column(String(32), nullable=True)  # Google Business Profile store code
+    opened_on: Mapped[date | None] = mapped_column(Date, nullable=True)      # first trading day (new-store flag, weeks open)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    hours: Mapped[str | None] = mapped_column(Text, nullable=True)           # JSON {"mon": "09:00-19:00", ...}
 
 
 class Category(Base):

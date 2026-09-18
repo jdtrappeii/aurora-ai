@@ -11,6 +11,7 @@ import InventoryPanel from "@/components/InventoryPanel";
 import PromotionsPanel from "@/components/PromotionsPanel";
 import DiscountsPanel from "@/components/DiscountsPanel";
 import MarketPanel from "@/components/MarketPanel";
+import AnalystPanel from "@/components/AnalystPanel";
 import ExternalPanel from "@/components/ExternalPanel";
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -131,6 +132,10 @@ export default function Page() {
         <>
           <Section title="This week" hint={w.is_partial ? `${w.days_elapsed} of 7 days · compared with the same weekdays` : "full week · Mon–Sun"}>
             <KpiGrid weekly={w} />
+          </Section>
+
+          <Section title="Ask Aurora" hint="answers come only from the figures on this page and the reports behind it">
+            <AnalystPanel scope={store} asOf={asOf} />
           </Section>
 
           <Section title="Twelve weeks" hint="revenue, gross profit and margin by week">
