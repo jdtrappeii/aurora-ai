@@ -38,6 +38,10 @@ r3,d3,2026-09-10,Planet 13 Florida Cannabis for the Planet,Planet 13,flcd_site,2
 r4,d4,2026-09-10,Curaleaf Florida LLC,Curaleaf,gmail,2026-09-09T10:40:00.000Z,msg-9,Curaleaf BOGO,bogo,BOGO pre-rolls,urgency,members,medium
 r5,d5,2026-09-10,GrowHealthy,GrowHealthy,flcd_site,,https://deals/5,no date,value,15% off,,general,high
 r6,d6,2026-09-03,Sunburn,Sunburn,flcd_site,2026-08-30T10:40:00.000Z,https://deals/6,SUNBURN 20% OFF,value,20% off,,general,high
+r7,d7,2026-09-10,,,flcd_site,2026-09-09T10:40:00.000Z,https://deals/7,FLCANNABIS DEALS banner,,,value,general,low
+r8,d8,2026-09-10,Trulieve,Trulieve,flcd_site,2026-09-09T10:40:00.000Z,https://deals/8,,,,,general,low
+,,2026-09-10,Sunburn,Sunburn,flcd_site,2026-09-08T10:40:00.000Z,https://deals/9,SUNBURN 10% OFF,percent_off,10% off,,general,high
+,,2026-09-10,Sunburn,Sunburn,flcd_site,2026-09-10T10:40:00.000Z,https://deals/9,SUNBURN 10% OFF,percent_off,10% off,,general,high
 """
 
 
@@ -148,18 +152,21 @@ def test_deals_to_events_and_pressure(session):
     session.commit()
     rows = read_table(DEALS_CSV, "d.csv")
     rep = deals_to_events(rows, (28.1, -81.6), "Planet 13 Florida Cannabis for the Planet")
-    assert rep.to_dict() == {"events": 3, "skipped_self": 1, "skipped_unparsed": 1, "skipped_no_date": 1}
+    # d2 has no parsed figure but a type and text: kept as a minor "value" deal. d7 has no
+    # operator, d8 nothing at all. The two id-less Sunburn rows are one deal observed twice in a week.
+    assert rep.to_dict() == {"events": 5, "skipped_self": 1, "skipped_unparsed": 1, "skipped_no_date": 1, "skipped_no_operator": 1, "duplicates": 1}
     by = {d.event_id: d for d in rep.drafts}
+    assert by["deal:d2"].severity == "minor" and by["deal:d2"].description == "Mint Cannabis: value: MINT (value)"
     assert by["deal:d1"].severity == "major" and by["deal:d1"].confidence == Decimal("0.9")
     assert by["deal:d4"].severity == "major" and by["deal:d4"].confidence == Decimal("0.7")
     assert by["deal:d1"].start_time == datetime(2026, 9, 8) and by["deal:d1"].end_time == datetime(2026, 9, 15, 23, 59)
-    assert upsert_events(session, rep.drafts, "deal-intel").inserted == 3
+    assert upsert_events(session, rep.drafts, "deal-intel").inserted == 5
 
     week = Period("w", date(2026, 9, 7), date(2026, 9, 13))
     p = competitor_pressure(session, week)
-    assert p["total_deals"] == 2 and p["previous_total_deals"] == 1 and p["vs_previous_pct"] == Decimal("1.0000")
+    assert p["total_deals"] == 4 and p["previous_total_deals"] == 1 and p["vs_previous_pct"] == Decimal("3.0000")
     ops = {o["operator"]: o for o in p["operators"]}
-    assert ops["Sunburn"]["deals"] == 1 and ops["Sunburn"]["previous_deals"] == 1 and ops["Sunburn"]["major"] == 1
+    assert ops["Sunburn"]["deals"] == 2 and ops["Sunburn"]["previous_deals"] == 1 and ops["Sunburn"]["major"] == 1
     assert ops["Curaleaf Florida LLC"]["previous_deals"] == 0 and ops["Curaleaf Florida LLC"]["vs_previous_pct"] is None
 
 
@@ -251,12 +258,12 @@ def test_sheets_sync_end_to_end(session):
         rep = sheets_sync(session, http, cfg)
     assert rep.ran == ["market", "deals", "promotions"] and rep.warnings == [] and rep.skipped == {}
     assert rep.details["market"] == {"tab": "77", "rows": 6, "competition_events": 1}
-    assert rep.details["deals"]["events"] == 3
+    assert rep.details["deals"]["events"] == 5
     assert rep.details["promotions"]["rows"] == 1 and "pos_discount_name" in rep.details["promotions"]["headers"]
     kinds = {}
     for ev in session.execute(select(ExternalEvent)).scalars():
         kinds[ev.source] = kinds.get(ev.source, 0) + 1
-    assert kinds == {"ommu": 1, "deal-intel": 3}
+    assert kinds == {"ommu": 1, "deal-intel": 5}
     assert session.execute(select(Promotion)).scalar_one().weekdays == "2"
 
 
@@ -298,7 +305,7 @@ def test_sync_finds_tabs_by_headers_when_no_tab_is_configured(session):
         rep = sheets_sync(session, http, cfg)
     assert rep.warnings == [] and rep.ran == ["market", "deals", "promotions"]
     assert rep.details["market"]["tab"] == "raw_weekly" and rep.details["market"]["rows"] == 6
-    assert rep.details["deals"]["tab"] == "deals_library" and rep.details["deals"]["events"] == 3
+    assert rep.details["deals"]["tab"] == "deals_library" and rep.details["deals"]["events"] == 5
     assert rep.details["promotions"]["tab"] == "FL Deals" and rep.details["promotions"]["rows"] == 1
     assert any("sharepoint.com" in u and "download=1" in u and "e=nsvmdG" in u for u in seen)
     assert session.execute(select(Promotion)).scalar_one().weekdays == "2"
@@ -318,26 +325,32 @@ def test_sheets_sync_skips_unconfigured_and_reports_errors(session):
 
 
 def test_promotion_calendar_rows_are_single_days_and_long_names(session):
-    """A promo calendar: one row per day, no end column, the whole offer as the
-    name. Rows run that day only; the same deal on touching days merges into one
-    window; the same deal weeks later is a separate window (unique per name+start)."""
-    long_name = "55% Off All Edibles, Flower 1/8 oz, and 0.5ml Vapes; 50% Off All Pre-Rolls, 1ml Vapes, Tinctures, & Tablets; " * 4
+    """A promo calendar: one row per day, no end column, the day's deals packed
+    into one cell. Each deal becomes its own one-day promotion with its own
+    figure; the same deal on touching days merges into one window; the same deal
+    weeks later is a separate window (unique per name+start)."""
+    packed = ("55% Off All Edibles, Flower 1/8 oz, and 0.5ml Vapes; 50% Off All Pre-Rolls, 1ml Vapes, Tinctures, & Tablets; "
+              "Door Buster: First 20 customers Get a Free Mac 1 3.5g Flower Jar with a $50+ Purchase")
+    long_single = "Pull Tab Activation: Get 1 Pull Tab with a purchase $75 after discount to use on your next purchase, Get 2 pull tabs with a purchase of $125 after discount to use on next purchase and 1 to redeem immediately"
     data = promo_xlsx([
-        (long_name, date(2026, 1, 1), None, "", "", "", "", "", "New Years Day"),
+        (packed, date(2026, 1, 1), None, "", "", "", "", "", "New Years Day"),
+        (long_single, date(2026, 1, 1), None, "", "", "", "", "", ""),
         ("Manager's Special", date(2026, 1, 5), None, "60% off", "", "", "", "", ""),
         ("Manager's Special", date(2026, 1, 6), None, "60% off", "", "", "", "", ""),
         ("Manager's Special", date(2026, 2, 3), None, "60% off", "", "", "", "", ""),
     ])
     r = import_promotion_rows(session, read_table(data, "cal.xlsx"))
-    assert (r.inserted, r.updated, r.skipped, r.errors) == (3, 1, 0, [])
-    ny = session.execute(select(Promotion).where(Promotion.start_date == date(2026, 1, 1))).scalar_one()
-    assert len(ny.name) > 128 and ny.end_date == date(2026, 1, 1) and ny.notes == "New Years Day"
+    assert (r.inserted, r.updated, r.skipped, r.errors) == (6, 1, 0, [])
+    day1 = session.execute(select(Promotion).where(Promotion.start_date == date(2026, 1, 1)).order_by(Promotion.id)).scalars().all()
+    assert [(p.discount_type, p.discount_value) for p in day1] == [("percent", Decimal("55")), ("percent", Decimal("50")), ("amount", Decimal("50")), ("amount", Decimal("75"))]
+    assert day1[0].name.startswith("55% Off") and day1[0].end_date == date(2026, 1, 1) and day1[0].notes == "New Years Day"
+    assert len(day1[3].name) > 128
     ms = session.execute(select(Promotion).where(Promotion.name == "Manager's Special").order_by(Promotion.start_date)).scalars().all()
-    assert [(p.start_date, p.end_date) for p in ms] == [(date(2026, 1, 5), date(2026, 1, 6)), (date(2026, 2, 3), date(2026, 2, 3))]
+    assert [(p.start_date, p.end_date, p.discount_value) for p in ms] == [(date(2026, 1, 5), date(2026, 1, 6), Decimal("60")), (date(2026, 2, 3), date(2026, 2, 3), Decimal("60"))]
     # re-import is idempotent
     r2 = import_promotion_rows(session, read_table(data, "cal.xlsx"))
-    assert (r2.inserted, r2.updated) == (0, 4)
-    assert session.execute(select(Promotion)).scalars().all().__len__() == 3
+    assert (r2.inserted, r2.updated) == (0, 7)
+    assert len(session.execute(select(Promotion)).scalars().all()) == 6
 
 
 def test_init_db_migrates_old_promotions_schema(tmp_path):

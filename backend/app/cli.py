@@ -59,7 +59,7 @@ from app.reports.render import render_html, render_text
 
 
 def _json(obj) -> str:
-    return json.dumps(obj, indent=2, default=lambda o: str(o) if isinstance(o, Decimal) else o)
+    return json.dumps(obj, indent=2, default=str)   # Decimals, dates, datetimes
 
 
 def sync_all(session, a, http=None) -> int:

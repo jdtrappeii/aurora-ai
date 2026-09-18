@@ -147,7 +147,9 @@ def market_competition_events(session: Session, centroid: tuple[float, float]) -
 # ---------- competitor deals ----------
 
 def offer_severity(offer_value: str | None, offer_type: str | None) -> tuple[str, Decimal | None]:
-    """Depth of the offer decides severity: 40%+ off (or BOGO) major, 20%+ moderate, else minor."""
+    """Depth of the offer decides severity: 40%+ off (or BOGO) major, 20%+ moderate,
+    else minor. With no figure at all, the classified offer type decides: bundles
+    and multi-buys are moderate, freebies and the rest minor."""
     text = f"{offer_value or ''} {offer_type or ''}".casefold()
     m = re.search(r"(\d{1,3})\s*%", text)
     pct = Decimal(m.group(1)) if m else None
@@ -162,6 +164,9 @@ def offer_severity(offer_value: str | None, offer_type: str | None) -> tuple[str
     m = re.search(r"\$\s*(\d+)", text)
     if m:
         return ("moderate" if int(m.group(1)) >= 20 else "minor"), None
+    kind = (offer_type or "").casefold()
+    if any(k in kind for k in ("bundle", "multiple", "dollar", "price_drop", "stack")):
+        return "moderate", None
     return "minor", None
 
 
@@ -171,9 +176,12 @@ class DealsReport:
     skipped_self: int = 0
     skipped_unparsed: int = 0
     skipped_no_date: int = 0
+    skipped_no_operator: int = 0
+    duplicates: int = 0
 
     def to_dict(self) -> dict:
-        return {"events": len(self.drafts), "skipped_self": self.skipped_self, "skipped_unparsed": self.skipped_unparsed, "skipped_no_date": self.skipped_no_date}
+        return {"events": len(self.drafts), "skipped_self": self.skipped_self, "skipped_unparsed": self.skipped_unparsed,
+                "skipped_no_date": self.skipped_no_date, "skipped_no_operator": self.skipped_no_operator, "duplicates": self.duplicates}
 
 
 def deals_to_events(rows: list[dict], centroid: tuple[float, float], self_operator: str | None = None,
@@ -184,8 +192,8 @@ def deals_to_events(rows: list[dict], centroid: tuple[float, float], self_operat
     for r in rows:
         operator = cell_str(pick(r, DEAL_ALIASES["operator"]))
         when = cell_date(pick(r, DEAL_ALIASES["when"]))
-        if not operator:
-            rep.skipped_unparsed += 1
+        if not operator:   # site banners and unattributed images
+            rep.skipped_no_operator += 1
             continue
         if self_norm and (self_norm in operator.casefold() or operator.casefold() in self_norm):
             rep.skipped_self += 1
@@ -195,12 +203,23 @@ def deals_to_events(rows: list[dict], centroid: tuple[float, float], self_operat
             continue
         offer_value = cell_str(pick(r, DEAL_ALIASES["offer_value"]))
         offer_type = cell_str(pick(r, DEAL_ALIASES["offer_type"]))
-        if not offer_value or "unparsed" in offer_value.casefold():
-            rep.skipped_unparsed += 1
-            continue
-        rid = cell_str(pick(r, DEAL_ALIASES["id"])) or f"{when.isoformat()}-{_slug(operator)}-{_slug(offer_value)[:40]}"
+        if offer_value and "unparsed" in offer_value.casefold():
+            offer_value = None
+        if not offer_value:
+            # The tracker classifies many deals (bundle, multiple, freebie...) without a
+            # single figure. They are still competitor activity: label them by type and
+            # the start of the observed text.
+            text = cell_str(pick(r, DEAL_ALIASES["subject"])) or ""
+            if not offer_type and not text:
+                rep.skipped_unparsed += 1
+                continue
+            offer_value = (offer_type.replace("_", " ") if offer_type else "deal") + (f": {text[:100]}" if text else "")
+        # One event per operator, offer and week: the tracker re-observes live deals daily.
+        week = when - timedelta(days=when.weekday())
+        rid = cell_str(pick(r, DEAL_ALIASES["id"])) or f"{week.isoformat()}-{_slug(operator)}-{_slug(offer_value)[:40]}"
         eid = f"deal:{rid}"
         if eid in seen:
+            rep.duplicates += 1
             continue
         seen.add(eid)
         expires = cell_date(pick(r, DEAL_ALIASES["expires"]))

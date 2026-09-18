@@ -129,6 +129,16 @@ def resolve_store_codes(session: Session, tokens: list[str]) -> tuple[list[str],
     return sorted(set(codes)), unknown
 
 
+_DEAL_SEP = re.compile(r"\s*(?:;|\n|\r|\u2022|\|)\s*")
+
+
+def split_deals(text: str) -> list[str]:
+    """A promo calendar packs a day's deals into one cell, separated by
+    semicolons, bullets or line breaks. Each becomes its own promotion."""
+    parts = [p.strip(" -\u00b7") for p in _DEAL_SEP.split(text or "")]
+    return [p for p in parts if p]
+
+
 def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[str, str] | str | None = None,
                           source: str = "sheet") -> ImportResult:
     res = ImportResult("promotions_sheet")
@@ -140,11 +150,12 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
         by_name.setdefault(p.name, []).append(p)
     touched: set[Promotion] = set()   # rows written by this import; only these merge
     for i, r in enumerate(rows, start=2):
-        name = cell_str(pick(r, "name", column_map))
+        cell_name = cell_str(pick(r, "name", column_map))
         start = cell_date(pick(r, "start", column_map))
-        if not name:
+        if not cell_name:
             res.skipped += 1
             continue
+        name = cell_name
         if start is None:
             res.errors.append(f"row {i} ({name}): no start date")
             res.skipped += 1
@@ -162,49 +173,57 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
             res.errors.append(f"row {i} ({name}): end {end} precedes start {start}")
             res.skipped += 1
             continue
-        dtype, dvalue = infer_type_value(pick(r, "type", column_map), pick(r, "value", column_map))
-        if dtype not in ("percent", "amount", "bogo") or dvalue is None:
-            # a headline-only deal ("Manager's Special Menu") still has a window worth tracking
-            dtype, dvalue = dtype if dtype in ("percent", "amount", "bogo") else "amount", dvalue or Decimal("0")
         codes, unknown = resolve_store_codes(session, _split(pick(r, "stores", column_map)))
         if unknown:
             res.errors.append(f"row {i} ({name}): unknown store(s) {unknown}; applied to all stores")
         skus = "|".join(_split(pick(r, "skus", column_map))) or None
-        values = dict(
-            start_date=start, end_date=end, discount_type=dtype, discount_value=dvalue,
-            eligible_skus=skus, eligible_category=cell_str(pick(r, "category", column_map)),
-            weekdays=weekdays, store_codes="|".join(codes) or None,
-            discount_names="|".join(_split(pick(r, "discount_names", column_map))) or None,
-            audience=cell_str(pick(r, "audience", column_map)), notes=notes, source=source,
-        )
-        # The same deal on several rows (one per store, or one per day of a run):
-        # merge only when the rows touch or overlap, so a deal that recurs on
-        # separate dates stays separate windows instead of one long smear.
-        promo = None
-        for cand in by_name.get(name, []):
-            if cand in touched and start <= cand.end_date + timedelta(days=1) and end >= cand.start_date - timedelta(days=1):
-                promo = cand
-                break
-        if promo is not None:
-            promo.store_codes = "|".join(sorted(set((promo.store_codes or "").split("|")) | set(codes) - {""})) or None if (promo.store_codes and codes) else None
-            if weekdays and promo.weekdays:
-                promo.weekdays = ",".join(sorted(set(promo.weekdays.split(",")) | set(weekdays.split(",")), key=int))
-            promo.start_date = min(promo.start_date, start)
-            promo.end_date = max(promo.end_date, end)
-            res.updated += 1
-            continue
-        promo = existing.get((name, start))
-        if promo is None:
-            promo = Promotion(name=name, **values)
-            session.add(promo)
-            existing[(name, start)] = promo
-            by_name.setdefault(name, []).append(promo)
-            res.inserted += 1
-        else:
-            for k, v in values.items():
-                setattr(promo, k, v)
-            res.updated += 1
-        touched.add(promo)
+        type_cell, value_cell = pick(r, "type", column_map), pick(r, "value", column_map)
+        deals = split_deals(cell_name)
+        for name in deals:
+            # With explicit type/value columns use them; a packed calendar cell
+            # carries the figure inside each deal's own text ("55% Off All Edibles").
+            if len(deals) > 1 or (type_cell in (None, "") and value_cell in (None, "")):
+                dtype, dvalue = infer_type_value(None, name)
+            else:
+                dtype, dvalue = infer_type_value(type_cell, value_cell)
+            if dtype not in ("percent", "amount", "bogo") or dvalue is None:
+                # a headline-only deal ("Manager's Special Menu") still has a window worth tracking
+                dtype, dvalue = dtype if dtype in ("percent", "amount", "bogo") else "amount", dvalue or Decimal("0")
+            values = dict(
+                start_date=start, end_date=end, discount_type=dtype, discount_value=dvalue,
+                eligible_skus=skus, eligible_category=cell_str(pick(r, "category", column_map)),
+                weekdays=weekdays, store_codes="|".join(codes) or None,
+                discount_names="|".join(_split(pick(r, "discount_names", column_map))) or None,
+                audience=cell_str(pick(r, "audience", column_map)), notes=notes, source=source,
+            )
+            # The same deal on several rows (one per store, or one per day of a run):
+            # merge only when the rows touch or overlap, so a deal that recurs on
+            # separate dates stays separate windows instead of one long smear.
+            promo = None
+            for cand in by_name.get(name, []):
+                if cand in touched and start <= cand.end_date + timedelta(days=1) and end >= cand.start_date - timedelta(days=1):
+                    promo = cand
+                    break
+            if promo is not None:
+                promo.store_codes = "|".join(sorted(set((promo.store_codes or "").split("|")) | set(codes) - {""})) or None if (promo.store_codes and codes) else None
+                if weekdays and promo.weekdays:
+                    promo.weekdays = ",".join(sorted(set(promo.weekdays.split(",")) | set(weekdays.split(",")), key=int))
+                promo.start_date = min(promo.start_date, start)
+                promo.end_date = max(promo.end_date, end)
+                res.updated += 1
+                continue
+            promo = existing.get((name, start))
+            if promo is None:
+                promo = Promotion(name=name, **values)
+                session.add(promo)
+                existing[(name, start)] = promo
+                by_name.setdefault(name, []).append(promo)
+                res.inserted += 1
+            else:
+                for k, v in values.items():
+                    setattr(promo, k, v)
+                res.updated += 1
+            touched.add(promo)
     session.commit()
     return res
 
