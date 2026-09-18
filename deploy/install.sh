@@ -63,7 +63,7 @@ preflight() {
   else
     echo "  tailscale: not installed (dashboard stays on 127.0.0.1; use an SSH tunnel)"
   fi
-  local hp="${AURORA_HTTP_PORT:-$(getenv "$HOME_DIR/.env" AURORA_HTTP_PORT 2>/dev/null)}"; hp="${hp:-8080}"
+  local hp="${AURORA_HTTP_PORT:-$(getenv "$HOME_DIR/.env" AURORA_HTTP_PORT 2>/dev/null)}"; [[ "$hp" =~ ^[0-9]{2,5}$ ]] || hp=8080
   if port_in_use "$hp"; then warn "port $hp is already in use on this box; you will be asked for another"; else echo "  port $hp:  free"; fi
   echo "  install to: $HOME_DIR   branch: $BRANCH"
   echo "  first sync: $BACKFILL_DAYS days back, Headset store filter '$STORE_FILTER' (Headset step skipped until configured)"
@@ -168,6 +168,7 @@ sheet_id() {  # accept a full Google Sheets URL or a bare id
 # ---------------------------------------------------------------- 3/4. prompts
 collect() {
   local be="backend/.env" ce=".env"
+  while read -r -t 0.2 _ </dev/tty; do :; done   # drop any pasted-ahead lines
   say "Keys and links (press Enter to keep what is already there; nothing is echoed for secrets)"
   if [ "${AURORA_HEADSET:-0}" = "1" ]; then
     echo "Headset"
@@ -206,7 +207,7 @@ collect() {
   ask $ce AURORA_HTTP_PORT "HTTP port on that address"
   local bind port; bind="$(getenv $ce AURORA_BIND)"; port="$(getenv $ce AURORA_HTTP_PORT)"
   [ -n "$bind" ] || setenv $ce AURORA_BIND 127.0.0.1
-  [ -n "$port" ] || setenv $ce AURORA_HTTP_PORT 8080
+  [[ "$port" =~ ^[0-9]{2,5}$ ]] || { warn "HTTP port '$port' is not a number; using 8080"; setenv $ce AURORA_HTTP_PORT 8080; }
   case "$(getenv $ce AURORA_BIND)" in
     0.0.0.0|::|"[::]") die "Refusing to bind to all interfaces on this install. Use 127.0.0.1 or the Tailscale IP." ;;
   esac
