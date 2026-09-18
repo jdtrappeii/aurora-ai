@@ -253,6 +253,17 @@ four hours *major*, else *severe*. A device that was unplugged looks exactly lik
 an outage, so treat a lone finding with suspicion; the resilience value on the
 dashboard is what these events are for.
 
+## State view, then the store
+
+Every analytics call takes one scope: nothing (everything), a state
+(`state:FL`) or a store code. The dashboard opens on `DEFAULT_SCOPE` (set it
+to `state:FL`), offers "All FL stores" above the store list, and every store
+option shows its state so a Nevada store never blends into the Florida read.
+The weekly report at state scope carries the store ranking for the drill-down;
+at store scope it carries that store's resilience and forecast instead.
+Store state comes from the Headset address (or a `state` column in
+`stores.csv`).
+
 ## The weekly owner report
 
 Every Monday (or on demand) one page: the week versus last week and the
@@ -281,6 +292,28 @@ There is no migration tool yet and none is needed so far: start-up creates
 missing tables and adds missing columns (`ALTER TABLE … ADD COLUMN`, printed
 as `[schema] …` by the CLI), which is every schema change Aurora has made.
 A column removal or type change would need a hand migration.
+
+## Go-live checklist
+
+What Aurora needs from outside the repository, in the order it pays off:
+
+| # | Item | Where it goes | Without it |
+|---|---|---|---|
+| 1 | Headset MCP endpoint URL + token, callable from the server | `HEADSET_MCP_URL`, `HEADSET_MCP_TOKEN` | no nightly sales; replay recorded pulls with `headset-import-dir` |
+| 2 | `DEFAULT_SCOPE=state:FL` and a Headset store filter of `FL -` on the first backfill | `backend/.env` | the state view blends other states |
+| 3 | Google Sheets shared "anyone with the link", SharePoint link "anyone with the link" | `MARKET_SHEET_ID`, `DEALS_SHEET_ID`, `PROMOTIONS_URL` | no market read, no competitor pressure, promotions by CSV only |
+| 4 | A POS discount name column in the promotions workbook | the workbook | promotions import but cannot be measured against the feed |
+| 5 | Store coordinates: `geocode-stores` (addresses come with the Headset store import) or a GMB export into `stores.csv` | database | no local events, traffic or weather per store |
+| 6 | Free keys: Ticketmaster, SeatGeek, FL511 | `backend/.env` | calendar only |
+| 7 | SMTP credentials and recipients | `SMTP_*`, `REPORT_TO` | report on the dashboard only, no Monday email |
+| 8 | Login password hash, Postgres password, optional hostname for HTTPS | `.env` next to compose | the stack refuses to start without the hash |
+| 9 | Heartbeat devices at stores (later) | `HEARTBEAT_TOKEN` | outages from utility maps or POS gaps only |
+| 10 | Dutchie location keys (when approved) | next connector | no receipt-level detail; aggregate feed continues |
+
+Backups: the Postgres volume is the system of record for imported data, but
+every Headset pull is also recorded as JSON under the data volume, so
+`docker compose exec postgres pg_dump -U aurora aurora > backup.sql` nightly
+plus a copy of `/data/headset` is a full recovery set.
 
 ## Deploy on a headless server
 
@@ -367,7 +400,7 @@ cd backend
 .venv/Scripts/python -m pytest
 ```
 
-98 tests. Every monetary expectation is worked out by hand in the test body.
+102 tests. Every monetary expectation is worked out by hand in the test body.
 
 An existing database from an older version is upgraded in place at start-up.
 
@@ -398,7 +431,7 @@ Prices in `sale_items` are **per unit**; `discount_amount` is derived as
 | Endpoint | Returns |
 |---|---|
 | `POST /api/import/{kind}` | Upload one CSV (`kind` = any file name above without `.csv`) |
-| `GET /api/dashboard?as_of=&store=` | Everything the home screen needs |
+| `GET /api/dashboard?as_of=&store=` | Everything the home screen needs (`store` = code, `state:FL`, or blank) |
 | `GET /api/metrics/weekly` | Current vs previous vs four-week average with deltas |
 | `GET /api/metrics/weekly-trend?weeks=12` | One summary per week |
 | `GET /api/metrics/summary?start=&end=` | Financial summary for any period |

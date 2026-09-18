@@ -7,6 +7,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./aurora.db"
     cors_origins: str = "http://localhost:3000"
+    # What the dashboard and the weekly report open on: "" = everything, "state:FL" = one state, or a store code.
+    default_scope: str = ""
 
     # Headset MCP connector (optional). The remote MCP endpoint and a bearer token.
     # Leave blank to use recorded JSON envelopes (`headset-import-dir`) instead.

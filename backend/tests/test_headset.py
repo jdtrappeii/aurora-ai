@@ -345,5 +345,6 @@ def test_api_import_headset_and_reports(client):
     assert dash["weekly"]["current_week"]["transactions"] == 6
     assert dash["discounts"]["code_count"] == 2
     assert {c["category"] for c in dash["categories"]} == {"Flower Pouch 3.5g", "Vape Cart 1g"}
-    stores = client.get("/api/stores").json()
-    assert {s["code"] for s in stores} == {"HS10136", "HS10132"}
+    listing = client.get("/api/stores").json()
+    assert {s["code"] for s in listing["stores"]} == {"HS10136", "HS10132"}
+    assert [s["code"] for s in listing["scopes"]] == ["state:FL"]

@@ -45,6 +45,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.analytics.money import D, ZERO, money, safe_div
+from app.analytics.scope import store_predicate
 from app.importers.csv_importer import ImportError_, ImportResult, Lookups
 from app.models import DailyStoreSummary, DiscountDaily, InventorySnapshot, Product, Sale, SaleItem, Store
 
@@ -197,9 +198,10 @@ def import_stores(session: Session, env: Envelope) -> ImportResult:
                         " ".join(x for x in (_clean(addr.get("state")), _clean(addr.get("postalCode"))) if x) or None)
             if p
         ) or None
+        state = (_clean(addr.get("state")) or "").upper() or None
         store = session.execute(select(Store).where(Store.code == code)).scalar_one_or_none()
         if store is None:
-            session.add(Store(code=code, name=name, timezone=tz, address=address))
+            session.add(Store(code=code, name=name, timezone=tz, address=address, state=state))
             res.inserted += 1
         else:
             store.name = name
@@ -207,6 +209,8 @@ def import_stores(session: Session, env: Envelope) -> ImportResult:
                 store.timezone = tz
             if address and not store.address:
                 store.address = address
+            if state and not store.state:
+                store.state = state
             res.updated += 1
     session.commit()
     return res
@@ -461,7 +465,7 @@ def reconcile(session: Session, store_code: str | None = None) -> list[dict]:
 
     stmt = select(DailyStoreSummary, Store.code).join(Store, DailyStoreSummary.store_id == Store.id)
     if store_code:
-        stmt = stmt.where(Store.code == store_code)
+        stmt = stmt.where(store_predicate(store_code))
     out = []
     for summary, code in session.execute(stmt.order_by(Store.code, DailyStoreSummary.sale_date)).all():
         lines = [ln for ln in load_lines(session, Period("day", summary.sale_date, summary.sale_date), code) if ln.source == SOURCE]

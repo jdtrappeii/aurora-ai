@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.analytics.lines import LineRow, completed, count_tickets, load_lines
 from app.analytics.money import ZERO, D, money, rate, safe_div
 from app.analytics.periods import Period
+from app.analytics.scope import store_predicate
 from app.models import DailyStoreSummary, Expense, Store
 
 
@@ -91,7 +92,7 @@ def operating_expenses(session: Session, period: Period, store_code: str | None 
         Expense.expense_date >= period.start, Expense.expense_date <= period.end
     )
     if store_code:
-        stmt = stmt.join(Store, Expense.store_id == Store.id).where(Store.code == store_code)
+        stmt = stmt.join(Store, Expense.store_id == Store.id).where(store_predicate(store_code))
     return money(D(session.execute(stmt).scalar_one()))
 
 
@@ -102,7 +103,7 @@ def feed_tickets(session: Session, period: Period, store_code: str | None = None
         DailyStoreSummary.sale_date >= period.start, DailyStoreSummary.sale_date <= period.end
     )
     if store_code:
-        stmt = stmt.join(Store, DailyStoreSummary.store_id == Store.id).where(Store.code == store_code)
+        stmt = stmt.join(Store, DailyStoreSummary.store_id == Store.id).where(store_predicate(store_code))
     rows, tickets = session.execute(stmt).one()
     return int(tickets) if rows else None
 

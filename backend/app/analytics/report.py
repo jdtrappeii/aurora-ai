@@ -33,6 +33,7 @@ from app.analytics.money import D, money, pct_change, rate
 from app.analytics.periods import Period, previous_week, week_containing
 from app.analytics.products import category_profitability, product_profitability
 from app.analytics.promotions import promotion_results
+from app.analytics.scope import is_state, scope_label, stores_in_scope
 from app.importers.headset import reconcile
 from app.models import ExternalEvent, Store, WeatherObservation
 
@@ -41,10 +42,10 @@ def _store_codes(session: Session) -> list[tuple[str, str]]:
     return [(s.code, s.name) for s in session.execute(select(Store).order_by(Store.code)).scalars()]
 
 
-def store_ranking(session: Session, current: Period, prev: Period, limit: int = 40) -> list[dict]:
-    """Every store with sales in either period, ranked by gross-profit change."""
+def store_ranking(session: Session, current: Period, prev: Period, limit: int = 40, scope: str | None = None) -> list[dict]:
+    """Every store in scope with sales in either period, ranked by gross-profit change."""
     rows = []
-    for code, name in _store_codes(session):
+    for code, name in [(s.code, s.name) for s in stores_in_scope(session, scope if is_state(scope) else None)]:
         cur = financial_summary(session, current, code)
         before = financial_summary(session, prev, code)
         if cur.revenue == 0 and before.revenue == 0:
@@ -99,14 +100,14 @@ def weekly_report(session: Session, as_of: date, store_code: str | None = None) 
 
     findings_block = None
     forecast_block = None
-    codes = [store_code] if store_code else [c for c, _ in _store_codes(session)]
+    codes = [store_code] if store_code and not is_state(store_code) else [s.code for s in stores_in_scope(session, store_code)]
     findings, forecast_days = [], []
     for code in codes[:60]:
         ef = event_findings(session, code, as_of)
         for f in ef["findings"]:
             if f["evidence_level"] != "no_material_variance" and current.start.isoformat() <= f["start_time"][:10] <= current.end.isoformat():
                 findings.append({"store": code, **f})
-        if store_code:
+        if store_code and not is_state(store_code):
             findings_block = ef["resilience"]
             forecast_days = proactive_forecast(session, code, as_of, 7)["days"]
     findings.sort(key=lambda f: (-abs(D(f["variance"])), f["store"]))
@@ -135,7 +136,7 @@ def weekly_report(session: Session, as_of: date, store_code: str | None = None) 
     return {
         "as_of": as_of.isoformat(),
         "store": store_code,
-        "store_name": next((n for c, n in _store_codes(session) if c == store_code), None) if store_code else None,
+        "store_name": scope_label(session, store_code),
         "period": current.to_dict(),
         "previous_period": prev.to_dict(),
         "is_partial": weekly["is_partial"],
@@ -143,7 +144,7 @@ def weekly_report(session: Session, as_of: date, store_code: str | None = None) 
         "headline": {"read": headline_read, "current": cw, "previous": pw, "four_week_average": weekly["four_week_average"],
                      "vs_previous_week": weekly["vs_previous_week"], "vs_four_week_average": weekly["vs_four_week_average"]},
         "market": market,
-        "stores": store_ranking(session, current, prev) if not store_code else [],
+        "stores": store_ranking(session, current, prev, scope=store_code) if (not store_code or is_state(store_code)) else [],
         "movers": {"categories": _movers(cats_now, cats_before, "category", "category"),
                    "products": _movers(prods_now, prods_before, "sku", "sku")},
         "promotions": promos[:10],
@@ -157,7 +158,7 @@ def weekly_report(session: Session, as_of: date, store_code: str | None = None) 
             "weather": bool(weather_rows),
             "market": market is not None,
             "promotions": len(promos),
-            "stores_reporting": len(store_ranking(session, current, prev)) if not store_code else 1,
+            "stores_reporting": len(store_ranking(session, current, prev, scope=store_code)) if (not store_code or is_state(store_code)) else 1,
         },
     }
 

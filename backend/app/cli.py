@@ -229,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
             from app.api.routes import resolve_as_of
 
             as_of = resolve_as_of(session, date.fromisoformat(a.as_of) if a.as_of else None)
-            rep = weekly_report(session, as_of, a.store or (settings.report_store or None))
+            rep = weekly_report(session, as_of, a.store or settings.report_store or settings.default_scope or None)
             if a.out and a.out.endswith(".json"):
                 Path(a.out).write_text(_json(rep), encoding="utf-8")
                 print(f"wrote {a.out}")

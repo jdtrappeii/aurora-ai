@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { API_URL, fetchDashboard, fetchStores, type Dashboard } from "@/lib/api";
+import { API_URL, fetchDashboard, fetchStores, type Dashboard, type StoreList } from "@/lib/api";
 import { shortDate } from "@/lib/format";
 import KpiGrid from "@/components/KpiGrid";
 import TrendChart from "@/components/TrendChart";
@@ -31,7 +31,7 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [asOf, setAsOf] = useState("");
   const [store, setStore] = useState("");
-  const [stores, setStores] = useState<{ code: string; name: string }[]>([]);
+  const [stores, setStores] = useState<StoreList>({ default: null, scopes: [], stores: [] });
 
   const load = useCallback(async (asOfValue: string, storeValue: string) => {
     setLoading(true);
@@ -48,8 +48,14 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    fetchStores().then(setStores).catch(() => setStores([]));
-    load("", "");
+    fetchStores()
+      .then((list) => {
+        setStores(list);
+        const initial = list.default ?? "";
+        setStore(initial);
+        load("", initial);
+      })
+      .catch(() => load("", ""));
   }, [load]);
 
   const w = data?.weekly;
@@ -66,7 +72,11 @@ export default function Page() {
             {cur ? (
               <>
                 Week of {shortDate(cur.start)} – {shortDate(cur.end)} · {w?.comparison_basis}
-                {data?.store ? ` · ${data.store}` : stores.length > 1 ? " · all stores" : ""}
+                {data?.store
+                  ? ` · ${[...stores.scopes, ...stores.stores].find((s) => s.code === data.store)?.name ?? data.store}`
+                  : stores.stores.length > 1
+                    ? " · all stores"
+                    : ""}
               </>
             ) : (
               "Profitability intelligence"
@@ -81,12 +91,17 @@ export default function Page() {
           }}
         >
           <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} aria-label="As of date" />
-          {stores.length > 1 && (
-            <select value={store} onChange={(e) => setStore(e.target.value)} aria-label="Store">
+          {stores.stores.length > 1 && (
+            <select value={store} onChange={(e) => setStore(e.target.value)} aria-label="Scope">
               <option value="">All stores</option>
-              {stores.map((s) => (
+              {stores.scopes.map((s) => (
                 <option key={s.code} value={s.code}>
                   {s.name}
+                </option>
+              ))}
+              {stores.stores.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.state ? `${s.state} · ` : ""}{s.name}
                 </option>
               ))}
             </select>

@@ -21,13 +21,14 @@ from sqlalchemy.orm import Session
 
 from app.analytics.money import ZERO, money, pct_change, rate, safe_div
 from app.analytics.periods import Period
+from app.analytics.scope import is_state, store_predicate, stores_in_scope
 from app.models import DiscountDaily, Store
 
 
 def _load(session: Session, period: Period, store_code: str | None) -> dict[str, dict]:
     stmt = select(DiscountDaily).where(DiscountDaily.sale_date >= period.start, DiscountDaily.sale_date <= period.end)
     if store_code:
-        stmt = stmt.join(Store, DiscountDaily.store_id == Store.id).where(Store.code == store_code)
+        stmt = stmt.join(Store, DiscountDaily.store_id == Store.id).where(store_predicate(store_code))
     agg: dict[str, dict] = defaultdict(lambda: {"discount_total": ZERO, "revenue": ZERO, "units": 0, "transaction_count": 0, "days": 0})
     for row in session.execute(stmt).scalars():
         a = agg[row.discount_name]
@@ -92,7 +93,12 @@ def promotion_feed(session: Session, promo, store_code: str | None = None) -> di
         return None
     names = {n.strip().casefold() for n in promo.discount_names.split("|") if n.strip()}
     codes = {c for c in (promo.store_codes or "").split("|") if c}
-    if store_code:
+    if store_code and is_state(store_code):
+        in_state = {s.code for s in stores_in_scope(session, store_code)}
+        codes = (codes & in_state) if codes else in_state
+        if not codes:
+            return {"discount_names": sorted(names), "applies_to_store": False}
+    elif store_code:
         if codes and store_code not in codes:
             return {"discount_names": sorted(names), "applies_to_store": False}
         codes = {store_code}

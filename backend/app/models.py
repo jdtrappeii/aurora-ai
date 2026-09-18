@@ -35,6 +35,7 @@ class Store(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)  # one line, for geocoding
+    state: Mapped[str | None] = mapped_column(String(8), nullable=True)      # "FL": the drill-down level above a store
 
 
 class Category(Base):

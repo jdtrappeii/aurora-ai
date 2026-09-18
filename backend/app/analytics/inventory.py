@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.analytics.lines import completed, load_lines
 from app.analytics.money import ZERO, D, money, rate, safe_div
 from app.analytics.periods import trailing_days
+from app.analytics.scope import store_predicate
 from app.models import Category, InventorySnapshot, Product, Store
 
 AGE_BUCKETS = (("0-30", 0, 30), ("31-60", 31, 60), ("61-90", 61, 90), ("90+", 91, None))
@@ -79,7 +80,7 @@ def latest_positions(session: Session, as_of: date, store_code: str | None = Non
         .order_by(Store.code, Product.sku)
     )
     if store_code:
-        stmt = stmt.where(Store.code == store_code)
+        stmt = stmt.where(store_predicate(store_code))
     return [Position(*row) for row in session.execute(stmt).all()]
 
 

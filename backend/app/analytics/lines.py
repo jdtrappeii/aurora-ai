@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.analytics.periods import Period
+from app.analytics.scope import store_predicate
 from app.models import Brand, Category, Employee, Product, Promotion, Sale, SaleItem, Store, Vendor
 
 
@@ -102,7 +103,7 @@ def load_lines(
         .order_by(Sale.sold_at, Sale.id, SaleItem.line_no)
     )
     if store_code:
-        stmt = stmt.where(Store.code == store_code)
+        stmt = stmt.where(store_predicate(store_code))
     if statuses:
         stmt = stmt.where(Sale.status.in_(statuses))
     return [LineRow(*row) for row in session.execute(stmt).all()]

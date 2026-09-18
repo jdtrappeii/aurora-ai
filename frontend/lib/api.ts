@@ -291,8 +291,20 @@ export async function fetchDashboard(asOf?: string, store?: string): Promise<Das
   return res.json();
 }
 
-export async function fetchStores(): Promise<{ code: string; name: string }[]> {
+export interface StoreOption {
+  code: string;
+  name: string;
+  state?: string | null;
+}
+
+export interface StoreList {
+  default: string | null;
+  scopes: StoreOption[];
+  stores: StoreOption[];
+}
+
+export async function fetchStores(): Promise<StoreList> {
   const res = await fetch(`${API_URL}/api/stores`, { cache: "no-store" });
-  if (!res.ok) return [];
+  if (!res.ok) return { default: null, scopes: [], stores: [] };
   return res.json();
 }

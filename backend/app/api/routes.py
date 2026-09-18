@@ -9,6 +9,7 @@ from app.analytics.comparisons import weekly_comparison, weekly_trend
 from app.analytics.discounts import discount_report
 from app.analytics.market import competitor_pressure, market_context
 from app.analytics.report import weekly_report
+from app.analytics.scope import is_state, stores_in_scope
 from app.reports.render import render_html
 from app.analytics.external import event_findings, proactive_forecast, weather_intelligence
 from app.analytics.financial import financial_summary
@@ -49,7 +50,15 @@ def health():
 
 @router.get("/stores")
 def stores(session: Session = Depends(get_session)):
-    return [{"code": s.code, "name": s.name} for s in session.execute(select(Store).order_by(Store.code)).scalars()]
+    """Stores plus the state scopes above them and the default scope for the
+    dashboard (DEFAULT_SCOPE, e.g. "state:FL")."""
+    rows = session.execute(select(Store).order_by(Store.state, Store.code)).scalars().all()
+    states = sorted({s.state for s in rows if s.state})
+    return {
+        "default": settings.default_scope or None,
+        "scopes": [{"code": f"state:{st}", "name": f"All {st} stores", "state": st} for st in states],
+        "stores": [{"code": s.code, "name": s.name, "state": s.state} for s in rows],
+    }
 
 
 @router.post("/import/headset")
@@ -221,7 +230,11 @@ def dashboard(as_of: date | None = None, store: str | None = None, session: Sess
 def _external_block(session: Session, store: str | None, as_of: date, current: Period) -> dict | None:
     """External findings for the home screen: this week's material events, learned
     weather effects, and the next 7 days. Per-store, so pick the first store when none given."""
-    code = store or (session.execute(select(Store.code).order_by(Store.code)).scalars().first())
+    if store and not is_state(store):
+        code = store
+    else:
+        first = stores_in_scope(session, store)
+        code = first[0].code if first else None
     if code is None:
         return None
     events = event_findings(session, code, as_of)
