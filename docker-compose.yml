@@ -1,11 +1,15 @@
-# Aurora on one box: Postgres, the API, the dashboard, and a scheduler that runs
-# every configured sync nightly. Secrets and links live in backend/.env (never
-# in the image or the repo). Recorded Headset pulls persist in the data volume.
+# Aurora on one box: Postgres, the API, the dashboard, a scheduler that runs
+# every configured sync nightly, and a Caddy proxy that is the only published
+# port and puts a login in front of everything (heartbeat pings excepted).
+# Secrets and links live in backend/.env and the compose .env, never in the
+# image or the repo. Recorded Headset pulls persist in the data volume.
 #
-#   cp backend/.env.example backend/.env   # fill in keys and links
+#   cp backend/.env.example backend/.env                       # keys and share links
+#   cp .env.example .env                                       # POSTGRES_PASSWORD, AURORA_USER, AURORA_PASSWORD_HASH, AURORA_DOMAIN
+#   docker compose run --rm proxy caddy hash-password          # paste the hash into .env
 #   docker compose up -d --build
 #   docker compose run --rm api python -m app.cli sync-all --backfill-days 90   # first load
-#   open http://<server>:3000
+#   open http://<server>   (or https://<AURORA_DOMAIN> once DNS points here)
 
 services:
   postgres:
@@ -33,8 +37,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     volumes:
       - aurora_data:/data
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,13 +62,33 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+        # empty = same origin: the browser calls /api/... through the proxy, so
+        # the login cookie covers the API too and no token ships in the bundle
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-}
     container_name: aurora-web
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
+      - api
+
+  proxy:
+    image: caddy:2
+    container_name: aurora-proxy
+    environment:
+      AURORA_DOMAIN: ${AURORA_DOMAIN:-:80}
+      AURORA_USER: ${AURORA_USER:-aurora}
+      AURORA_PASSWORD_HASH: "${AURORA_PASSWORD_HASH:?set AURORA_PASSWORD_HASH in .env (docker compose run --rm proxy caddy hash-password)}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - aurora_caddy:/data
+    depends_on:
+      - web
       - api
 
 volumes:
   aurora_pgdata:
   aurora_data:
+  aurora_caddy:

@@ -278,6 +278,7 @@ export interface Dashboard {
   external: External | null;
 }
 
+/** Empty string = same origin (behind the proxy). Unset = local dev against uvicorn. */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export async function fetchDashboard(asOf?: string, store?: string): Promise<Dashboard> {

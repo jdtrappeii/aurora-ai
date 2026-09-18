@@ -255,22 +255,26 @@ dashboard is what these events are for.
 
 ## Deploy on a headless server
 
-One box, four containers: Postgres, the API, the dashboard, and a scheduler
-that runs every configured sync once a night. Secrets and share links live in
-`backend/.env` on the server and nowhere else.
+One box, five containers: Postgres, the API, the dashboard, a scheduler that
+runs every configured sync once a night, and a Caddy proxy that is the only
+published port and puts a login in front of everything. The API and dashboard
+are never exposed directly. Store heartbeat pings bypass the login because the
+devices carry their own `HEARTBEAT_TOKEN`. Secrets and share links live in the
+two `.env` files on the server and nowhere else.
 
 ```bash
 git clone <your private clone or this template> aurora && cd aurora
 cp backend/.env.example backend/.env          # keys, share links, HEARTBEAT_TOKEN, GEOCODER_USER_AGENT
-export POSTGRES_PASSWORD='<strong password>'  # or put it in a .env next to docker-compose.yml
-export PUBLIC_API_URL=http://<server-ip>:8000  # what browsers will call
-export CORS_ORIGINS=http://<server-ip>:3000
+cp .env.example .env                          # POSTGRES_PASSWORD, AURORA_USER, AURORA_DOMAIN
+docker compose run --rm proxy caddy hash-password   # type the dashboard password; paste the hash as AURORA_PASSWORD_HASH in .env
 docker compose up -d --build
 docker compose run --rm api python -m app.cli sync-all --backfill-days 90 --stores "FL -"   # first load
 docker compose logs -f scheduler
 ```
 
-Open `http://<server-ip>:3000`. The scheduler service runs `sync-all` at
+Open `http://<server-ip>` and log in. Set `AURORA_DOMAIN` to a hostname whose
+DNS points at the box and Caddy obtains an HTTPS certificate on its own. The
+scheduler service runs `sync-all` at
 `SYNC_HOUR_UTC` (default 08:00 UTC, 4am Eastern) and once on start-up. Each
 step runs only when configured, never blocks the others, and the run ends with
 a JSON summary of what ran, what was skipped and why, and what failed:
