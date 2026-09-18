@@ -112,9 +112,16 @@ start_docker() {
 fetch_code() {
   if [ -d "$HOME_DIR/.git" ]; then
     say "Updating $HOME_DIR ($BRANCH)"
+    local before after
+    before="$(git -C "$HOME_DIR" rev-parse HEAD)"
     git -C "$HOME_DIR" fetch --quiet origin "$BRANCH"
     git -C "$HOME_DIR" checkout --quiet "$BRANCH"
     git -C "$HOME_DIR" pull --ff-only --quiet origin "$BRANCH"
+    after="$(git -C "$HOME_DIR" rev-parse HEAD)"
+    if [ "$before" != "$after" ] && [ "${AURORA_REEXEC:-0}" != "1" ]; then
+      warn "Installer updated ($(git -C "$HOME_DIR" log --oneline -1 | cut -c1-60)); restarting with the new version."
+      AURORA_REEXEC=1 exec bash "$HOME_DIR/deploy/install.sh"
+    fi
   else
     say "Cloning $REPO_URL ($BRANCH) into $HOME_DIR"
     command -v git >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq git; }
@@ -278,7 +285,7 @@ launch() {
   echo "  GMB export: docker compose cp locations.csv api:/tmp/ && docker compose run --rm api python -m app.cli gmb-import /tmp/locations.csv && docker compose run --rm api python -m app.cli geocode-stores"
 }
 
-preflight
+if [ "${AURORA_REEXEC:-0}" != "1" ]; then preflight; fi
 need_docker
 start_docker
 fetch_code
