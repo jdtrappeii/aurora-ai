@@ -52,6 +52,7 @@ class Discovery:
     token_endpoint: str
     registration_endpoint: str | None
     scopes: list[str] = field(default_factory=list)
+    cimd_supported: bool = False   # client id may be the URL of a published metadata document
 
 
 def _well_known(base: str, suffix: str) -> str:
@@ -110,7 +111,8 @@ def discover(http: httpx.Client, mcp_url: str) -> Discovery:
             if meta and meta.get("authorization_endpoint") and meta.get("token_endpoint"):
                 return Discovery(resource=resource, issuer=meta.get("issuer", issuer),
                                  authorization_endpoint=meta["authorization_endpoint"], token_endpoint=meta["token_endpoint"],
-                                 registration_endpoint=meta.get("registration_endpoint"), scopes=list(meta.get("scopes_supported") or scopes))
+                                 registration_endpoint=meta.get("registration_endpoint"), scopes=list(meta.get("scopes_supported") or scopes),
+                                 cimd_supported=bool(meta.get("client_id_metadata_document_supported")))
     raise OAuthError(f"no OAuth metadata found for {mcp_url} (tried {as_urls}); ask the provider for a static token instead")
 
 
@@ -136,10 +138,16 @@ def pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
+def request_scopes(disc: Discovery) -> list[str]:
+    """Only what the sync needs: offline_access for a refresh token, when the
+    server offers it. Identity scopes (openid, email, ...) are not requested."""
+    return ["offline_access"] if "offline_access" in disc.scopes else []
+
+
 def authorize_url(disc: Discovery, client_id: str, challenge: str, state: str, scopes: list[str] | None = None) -> str:
     params = {"response_type": "code", "client_id": client_id, "redirect_uri": REDIRECT_URI, "code_challenge": challenge,
               "code_challenge_method": "S256", "state": state, "resource": disc.resource}
-    sc = " ".join(scopes if scopes is not None else disc.scopes)
+    sc = " ".join(scopes if scopes is not None else request_scopes(disc))
     if sc:
         params["scope"] = sc
     sep = "&" if "?" in disc.authorization_endpoint else "?"
@@ -227,7 +235,13 @@ def login(http: httpx.Client, mcp_url: str, store: TokenStore, prompt=input, ech
     if client_id:
         client = {"client_id": client_id, "client_secret": client_secret}
     if not client:
-        client = register_client(http, disc)
+        try:
+            client = register_client(http, disc)
+        except OAuthError as e:
+            if disc.cimd_supported:
+                raise OAuthError(str(e) + "\nThis server also accepts a client identified by a published metadata document: set "
+                                 "HEADSET_OAUTH_CLIENT_ID to the https address of your client.json (see docs/oauth/client.json and the README).")
+            raise
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(16)
     echo("\nOpen this address in a browser, sign in to Headset, and approve the access:\n")
@@ -249,6 +263,7 @@ def describe(http: httpx.Client, mcp_url: str) -> dict:
         return {"mcp_url": mcp_url, "error": str(e)}
     out = {"mcp_url": mcp_url, "resource": d.resource, "issuer": d.issuer, "authorization_endpoint": d.authorization_endpoint,
            "token_endpoint": d.token_endpoint, "registration_endpoint": d.registration_endpoint, "scopes_supported": d.scopes,
+           "client_id_metadata_document_supported": d.cimd_supported, "refresh_tokens_via": "offline_access" if "offline_access" in d.scopes else "not advertised",
            "redirect_uri_aurora_uses": REDIRECT_URI, "client_name_aurora_uses": CLIENT_NAME}
     if d.registration_endpoint:
         try:

@@ -372,6 +372,27 @@ every Headset pull is also recorded as JSON under the data volume, so
 `docker compose exec postgres pg_dump -U aurora aurora > backup.sql` nightly
 plus a copy of `/data/headset` is a full recovery set.
 
+## Signing the server in to Headset
+
+Headset's MCP server uses OAuth. Its sign-in server refuses self-registration
+but accepts a client identified by a **published metadata document**
+(`client_id_metadata_document_supported`), and issues refresh tokens for the
+`offline_access` scope. Aurora ships that document at `docs/oauth/client.json`.
+Publish it from your fork with GitHub Pages (Settings, Pages, deploy from the
+branch you run, folder `/docs`), so it is reachable at
+`https://<owner>.github.io/<repo>/oauth/client.json`; the installer sets
+`HEADSET_OAUTH_CLIENT_ID` to that address. Then:
+
+```bash
+AURORA_HEADSET=1 bash deploy/install.sh   # prints a sign-in link; paste back the address the browser lands on
+docker compose run --rm api python -m app.cli headset-status
+```
+
+Tokens live in `/data/headset/oauth.json` (0600) on the data volume and refresh
+on their own. To reuse a token Claude Code already obtained on the same box:
+`headset-login --from-claude-code ~/.claude/.credentials.json` (that token has
+no refresh token; it lasts about a day).
+
 ## Deploy on a headless server
 
 On a Linux VPS, as a normal user with sudo. Read the script first, then run it:

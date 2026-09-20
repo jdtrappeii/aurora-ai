@@ -189,8 +189,18 @@ collect() {
     [ -n "$(getenv $be HEADSET_MCP_URL)" ] || setenv $be HEADSET_MCP_URL "https://mcp.headset.io"
     ask $be HEADSET_MCP_URL     "MCP endpoint URL"
     ask $be HEADSET_MCP_TOKEN   "Static token (blank = browser sign-in)" secret
-    echo "  If Headset issued an OAuth client for this server, enter it; blank tries self-registration."
-    ask $be HEADSET_OAUTH_CLIENT_ID     "OAuth client id"
+    # Headset's sign-in server accepts a client identified by a published metadata
+    # document (docs/oauth/client.json served by this repository's GitHub Pages).
+    if [ -z "$(getenv $be HEADSET_OAUTH_CLIENT_ID)" ]; then
+      local origin owner repo
+      origin="$(git -C "$HOME_DIR" remote get-url origin 2>/dev/null || true)"
+      if [[ "$origin" =~ github\.com[:/]([^/]+)/([^/.]+) ]]; then
+        owner="${BASH_REMATCH[1]}"; repo="${BASH_REMATCH[2]}"
+        setenv $be HEADSET_OAUTH_CLIENT_ID "https://${owner}.github.io/${repo}/oauth/client.json"
+      fi
+    fi
+    echo "  Client id: the https address of the published client.json (GitHub Pages of this repo), or an id Headset issued."
+    ask $be HEADSET_OAUTH_CLIENT_ID     "OAuth client id / metadata URL"
     ask $be HEADSET_OAUTH_CLIENT_SECRET "OAuth client secret (if any)" secret
   else
     echo "Headset: not configured (run with AURORA_HEADSET=1 when cleared); the sync reports it as skipped"

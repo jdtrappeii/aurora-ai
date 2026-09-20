@@ -134,3 +134,34 @@ def test_import_token_from_claude_code(tmp_path):
     assert access_token(httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))), store) == "cc-token"
     with pytest.raises(OAuthError, match="no Claude Code credential"):
         import_from_claude_code(tmp_path / "creds.json", "https://other.test", store)
+
+
+def test_metadata_document_client_and_offline_access(tmp_path):
+    from app.integrations.headset.oauth import authorize_url, describe, request_scopes
+    state = {"access": None, "refresh": "rt-1", "registered": 0, "refreshed": 0, "calls": []}
+    base = fake_server(state)._transport.handler
+    cimd = "https://owner.github.io/aurora-ai/oauth/client.json"
+
+    def handler(req):
+        if req.url.path == "/.well-known/oauth-authorization-server":
+            r = base(req); m = r.json(); m["client_id_metadata_document_supported"] = True; m["scopes_supported"] = ["openid", "offline_access", "email"]
+            return httpx.Response(200, json=m)
+        if req.url.path == "/register":
+            return httpx.Response(400, json={"message": "dynamic client registration is disabled"})
+        if req.url.path == "/token":
+            form = parse_qs(req.content.decode())
+            assert form["client_id"] == [cimd]
+            return httpx.Response(200, json={"access_token": "at-cimd", "token_type": "Bearer", "expires_in": 86400, "refresh_token": "rt-cimd"})
+        return base(req)
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    d = describe(http, MCP)
+    assert d["client_id_metadata_document_supported"] is True and d["refresh_tokens_via"] == "offline_access"
+    disc = discover(http, MCP)
+    assert request_scopes(disc) == ["offline_access"]
+    url = authorize_url(disc, cimd, "chal", "st")
+    q = parse_qs(urlparse(url).query)
+    assert q["client_id"] == [cimd] and q["scope"] == ["offline_access"] and q["resource"] == [MCP] and q["code_challenge_method"] == ["S256"]
+    with pytest.raises(OAuthError, match="published metadata document"):
+        login(http, MCP, TokenStore(tmp_path / "x.json"), prompt=lambda _: "c", echo=lambda _: None)
+    st = login(http, MCP, TokenStore(tmp_path / "o.json"), prompt=lambda _: "http://localhost:8765/callback?code=the-code", echo=lambda _: None, client_id=cimd)
+    assert st["logged_in"] and st["has_refresh_token"] and 86000 < st["expires_in_s"] <= 86400
