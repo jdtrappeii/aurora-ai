@@ -1,6 +1,6 @@
 """Headset connector: envelope import, exact totals, ticket counting, discount
 report, sync orchestration and reconciliation. Numbers are worked by hand."""
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -348,3 +348,41 @@ def test_api_import_headset_and_reports(client):
     listing = client.get("/api/stores").json()
     assert {s["code"] for s in listing["stores"]} == {"HS10136", "HS10132"}
     assert [s["code"] for s in listing["scopes"]] == ["state:FL"]
+
+
+def test_headset_sync_resumes_limits_detail_and_pulls_stores_in_parallel(session, tmp_path):
+    """A 10-day range with 3 days of detail: totals cover all 10 days, product and
+    discount pulls only the last 3. Recorded envelopes are replayed on the next
+    run; with parallel workers each gets its own source from the factory."""
+    from app.integrations.headset.client import StaticSource
+    from app.integrations.headset.pull import headset_sync
+    stores = {"stores": [{"storeId": 1, "name": "FL - Demo - Pace", "address": {"state": "FL", "postalCode": "32571"}},
+                         {"storeId": 2, "name": "FL - Demo - Tampa", "address": {"state": "FL", "postalCode": "33602"}}]}
+    made = []
+
+    def factory():
+        src = StaticSource({
+            "retailer_get_stores": stores,
+            "retailer_get_inventory": {"rows": [], "hasMore": False},
+            "retailer_sales_trend": lambda a: {"rows": [{"sold_date": d, "store_name": n, "total_revenue": 100, "total_gross_sales": 120, "total_units": 3,
+                                                          "total_discounts": 20, "total_cost": 50, "total_profit": 50, "transaction_count": 2}
+                                                         for n in a["storeNames"] for d in [str(date(2026, 9, 1) + timedelta(days=i)) for i in range(10)]], "hasMore": False},
+            "retailer_sales_by_dimension": lambda a: {"rows": [{"product_name": "P", "sku": "S1", "total_revenue": 50, "total_gross_sales": 60, "total_units": 1,
+                                                                 "total_discounts": 10, "total_cost": 25, "total_profit": 25, "transaction_count": 1}]
+                                                        if a["dimension"] == "product" else [], "hasMore": False},
+        })
+        made.append(src)
+        return src
+    main = factory()
+    rep = headset_sync(main, session, date(2026, 9, 1), date(2026, 9, 10), store_filter="FL -", record_dir=tmp_path,
+                       detail_days=3, parallel=2, source_factory=factory)
+    detail_calls = sum(1 for src in made for t, a in src.calls if t == "retailer_sales_by_dimension")
+    assert detail_calls == 2 * 3 * 2                       # 2 stores x 3 days x (products + discounts)
+    assert len(made) >= 2 and rep.replayed == 0
+    assert sorted(p.name for p in tmp_path.glob("products__*"))[0].endswith("2026-09-08.json")
+    assert session.execute(select(DailyStoreSummary)).scalars().all().__len__() == 20   # totals for all 10 days, both stores
+    # second run: everything replays from the recordings, no live detail or totals calls
+    again = factory()
+    rep2 = headset_sync(again, session, date(2026, 9, 1), date(2026, 9, 10), store_filter="FL -", record_dir=tmp_path,
+                        detail_days=3, parallel=1)
+    assert rep2.replayed == 2 * 3 * 2 + 1 and [t for t, _ in again.calls] == ["retailer_get_stores", "retailer_get_inventory", "retailer_get_inventory"]

@@ -96,8 +96,10 @@ def sync_all(session, a, http=None) -> int:
                 from app.integrations.headset.client import client_from_settings
                 from app.integrations.headset.pull import headset_sync
 
+                detail = a.detail_days if a.detail_days is not None else (30 if a.backfill_days else None)
                 rep = headset_sync(client_from_settings(), session, start, end, store_filter=a.stores,
-                                   include_inventory=True, record_dir=settings.headset_data_dir)
+                                   include_inventory=True, record_dir=settings.headset_data_dir,
+                                   detail_days=detail, parallel=a.parallel, source_factory=client_from_settings)
                 _print_results(rep.results)
                 d = rep.to_dict()
                 return {k: d[k] for k in ("stores", "calls", "warnings", "reconciliation_missing", "reconciled_days")}
@@ -160,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     p_hs.add_argument("--full-catalog", action="store_true", help="walk every category so zero-stock SKUs are classified")
     p_hs.add_argument("--no-products", action="store_true")
     p_hs.add_argument("--no-discounts", action="store_true")
+    p_hs.add_argument("--detail-days", type=int, default=None, help="product/discount detail only for the last N days of the range")
+    p_hs.add_argument("--parallel", type=int, default=4, help="stores pulled concurrently")
+    p_hs.add_argument("--no-resume", action="store_true", help="re-ask Headset even when an envelope is already recorded")
     p_hd = sub.add_parser("headset-import-dir", help="replay recorded Headset pulls")
     p_hd.add_argument("directory")
     p_hr = sub.add_parser("headset-reconcile")
@@ -190,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
     p_all.add_argument("--days", type=int, default=3, help="how many trailing days to (re)pull for daily feeds")
     p_all.add_argument("--backfill-days", type=int, default=None, help="first load: pull this many days instead")
     p_all.add_argument("--stores", default=None, help="Headset store-name filter, e.g. 'FL -'")
+    p_all.add_argument("--detail-days", type=int, default=None, help="product/discount detail only for the last N days (backfill default 30; totals cover the whole range)")
+    p_all.add_argument("--parallel", type=int, default=4, help="stores pulled concurrently from Headset")
     p_rep = sub.add_parser("weekly-report", help="the owner's weekly report as HTML / text / JSON, optionally emailed")
     p_rep.add_argument("--as-of", default=None)
     p_rep.add_argument("--store", default=None)
@@ -337,6 +344,7 @@ def main(argv: list[str] | None = None) -> int:
                 client_from_settings(), session, date.fromisoformat(a.start), date.fromisoformat(a.end),
                 store_filter=a.stores, include_inventory=not a.no_inventory, full_catalog=a.full_catalog,
                 include_products=not a.no_products, include_discounts=not a.no_discounts, record_dir=record,
+                detail_days=a.detail_days, resume=not a.no_resume, parallel=a.parallel, source_factory=client_from_settings,
             )
             _print_results(report.results)
             print(_json({k: v for k, v in report.to_dict().items() if k != "results"}))
