@@ -278,3 +278,35 @@ def access_token(http: httpx.Client, store: TokenStore) -> str | None:
         d["token"] = tok
         store.save(d)
     return tok["access_token"]
+
+
+def import_from_claude_code(path: str | Path, mcp_url: str, store: TokenStore) -> dict:
+    """Reuse the token Claude Code obtained for the same MCP server (its
+    ~/.claude/.credentials.json, mcpOAuth section). The token is copied into
+    Aurora's store with its expiry; a refresh token is copied when present.
+    Nothing else in that file is read."""
+    data = json.loads(Path(path).read_text())
+    entries = (data.get("mcpOAuth") or {}).values()
+    want = mcp_url.rstrip("/")
+    match = next((e for e in entries if str(e.get("serverUrl", "")).rstrip("/") == want), None)
+    if match is None:
+        raise OAuthError(f"no Claude Code credential for {mcp_url}; run `claude` and authenticate the server with /mcp first")
+    if not match.get("accessToken"):
+        raise OAuthError("the Claude Code credential has no access token")
+    now = int(time.time())
+    exp_ms = match.get("expiresAt")
+    expires_in = max(0, int(exp_ms / 1000) - now) if exp_ms else 0
+    disc = match.get("discoveryState") or {}
+    token = {"access_token": match["accessToken"], "token_type": "Bearer", "obtained_at": now, "scope": match.get("scope") or None,
+             "source": "claude-code"}
+    if expires_in:
+        token["expires_in"] = expires_in
+    if match.get("refreshToken"):
+        token["refresh_token"] = match["refreshToken"]
+    existing = store.load() or {}
+    discovery = existing.get("discovery") or {"resource": mcp_url, "issuer": match.get("issuer") or disc.get("authorizationServerUrl") or "",
+                                              "authorization_endpoint": "", "token_endpoint": "", "registration_endpoint": None, "scopes": []}
+    store.save({"mcp_url": mcp_url, "discovery": discovery, "client": {"client_id": match.get("clientId"), "client_secret": None}, "token": token})
+    st = store.status()
+    st["refresh_token_available"] = bool(token.get("refresh_token"))
+    return st

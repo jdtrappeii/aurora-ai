@@ -117,3 +117,20 @@ def test_issued_client_id_skips_registration_and_status_describes_provider(tmp_p
     st = login(rhttp, MCP, store, prompt=lambda _: "http://localhost:8765/callback?code=the-code", echo=lambda _: None, client_id="cid-1")
     assert st["logged_in"] and state["registered"] == 0
     assert json.loads((tmp_path / "oauth.json").read_text())["client"] == {"client_id": "cid-1", "client_secret": None}
+
+
+def test_import_token_from_claude_code(tmp_path):
+    from app.integrations.headset.oauth import import_from_claude_code
+    creds = {"claudeAiOauth": {"accessToken": "never-read"},
+             "mcpOAuth": {"headset|abc": {"serverName": "headset", "serverUrl": "https://mcp.headset.io", "accessToken": "cc-token",
+                                          "clientId": "https://example/client.json", "issuer": "https://auth.headset.io/",
+                                          "expiresAt": int((time.time() + 3600) * 1000), "scope": ""}}}
+    (tmp_path / "creds.json").write_text(json.dumps(creds))
+    store = TokenStore(tmp_path / "oauth.json")
+    st = import_from_claude_code(tmp_path / "creds.json", "https://mcp.headset.io/", store)
+    assert st["logged_in"] and st["refresh_token_available"] is False and 3500 < st["expires_in_s"] <= 3600
+    saved = json.loads((tmp_path / "oauth.json").read_text())
+    assert saved["token"]["access_token"] == "cc-token" and "never-read" not in json.dumps(saved)
+    assert access_token(httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))), store) == "cc-token"
+    with pytest.raises(OAuthError, match="no Claude Code credential"):
+        import_from_claude_code(tmp_path / "creds.json", "https://other.test", store)
