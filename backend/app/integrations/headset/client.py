@@ -15,6 +15,7 @@ Tool results come back as JSON text inside `result.content[0].text` (or as
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
@@ -72,11 +73,13 @@ class McpHeadsetClient:
 
     PROTOCOL_VERSION = "2025-06-18"
 
-    def __init__(self, url: str, token: str = "", timeout: float = 60.0, client: httpx.Client | None = None):
+    def __init__(self, url: str, token: str = "", timeout: float = 60.0, client: httpx.Client | None = None,
+                 token_provider=None):
         if not url:
             raise HeadsetError("HEADSET_MCP_URL is not set")
         self.url = url
         self.token = token
+        self._token_provider = token_provider   # () -> str; OAuth store, refreshed on use
         self._http = client or httpx.Client(timeout=timeout)
         self._session_id: str | None = None
         self._next_id = 0
@@ -86,8 +89,9 @@ class McpHeadsetClient:
 
     def _headers(self) -> dict[str, str]:
         h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
-        if self.token:
-            h["Authorization"] = f"Bearer {self.token}"
+        tok = self.token or (self._token_provider() if self._token_provider else "")
+        if tok:
+            h["Authorization"] = f"Bearer {tok}"
         if self._session_id:
             h["Mcp-Session-Id"] = self._session_id
         return h
@@ -171,7 +175,20 @@ class McpHeadsetClient:
         return self.call_tool(TOOL_TREND, arguments)
 
 
-def client_from_settings() -> McpHeadsetClient:
+def oauth_store_path() -> str:
     from app.config import settings
+    return str(Path(settings.headset_data_dir) / "oauth.json")
 
-    return McpHeadsetClient(settings.headset_mcp_url, settings.headset_mcp_token)
+
+def client_from_settings() -> McpHeadsetClient:
+    """Static HEADSET_MCP_TOKEN when set; otherwise the OAuth tokens saved by `headset-login`."""
+    from app.config import settings
+    from app.integrations.headset.oauth import TokenStore, access_token
+
+    if settings.headset_mcp_token:
+        return McpHeadsetClient(settings.headset_mcp_url, settings.headset_mcp_token)
+    store = TokenStore(oauth_store_path())
+    http = httpx.Client(timeout=60.0)
+    if not store.status().get("logged_in"):
+        raise HeadsetError("no Headset credential: set HEADSET_MCP_TOKEN or run `python -m app.cli headset-login`")
+    return McpHeadsetClient(settings.headset_mcp_url, "", client=http, token_provider=lambda: access_token(http, store))

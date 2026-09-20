@@ -143,6 +143,11 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(name)
         p.add_argument("--as-of", default=None)
         p.add_argument("--store", default=None)
+    p_login = sub.add_parser("headset-login", help="sign in to the Headset MCP server once (OAuth); tokens are kept on the data volume")
+    p_login.add_argument("--url", default=None, help="MCP URL (default HEADSET_MCP_URL)")
+    p_login.add_argument("--client-id", default=None, help="pre-issued OAuth client id (skips dynamic registration)")
+    p_login.add_argument("--client-secret", default=None)
+    sub.add_parser("headset-status", help="is the server signed in to Headset, and until when")
     p_hs = sub.add_parser("headset-sync", help="pull a date range from the Headset MCP server")
     p_hs.add_argument("--start", required=True)
     p_hs.add_argument("--end", required=True)
@@ -294,6 +299,22 @@ def main(argv: list[str] | None = None) -> int:
         elif a.cmd == "heartbeat-status":
             for st in hb.status(session):
                 print(f"{st.store:10s} {st.kind:8s} last seen {st.last_seen_at:%Y-%m-%d %H:%M}  silent {st.minutes_silent} min")
+        elif a.cmd == "headset-login":
+            import httpx
+            from app.integrations.headset.client import oauth_store_path
+            from app.integrations.headset.oauth import TokenStore, login
+            url = a.url or settings.headset_mcp_url
+            if not url:
+                raise SystemExit("set HEADSET_MCP_URL (e.g. https://mcp.headset.io) or pass --url")
+            with httpx.Client(timeout=60.0, follow_redirects=True) as http:
+                print(_json(login(http, url, TokenStore(oauth_store_path()), client_id=a.client_id, client_secret=a.client_secret)))
+        elif a.cmd == "headset-status":
+            from app.integrations.headset.client import oauth_store_path
+            from app.integrations.headset.oauth import TokenStore
+            st = TokenStore(oauth_store_path()).status()
+            st["static_token"] = bool(settings.headset_mcp_token)
+            st["mcp_url"] = settings.headset_mcp_url
+            print(_json(st))
         elif a.cmd == "headset-sync":
             from app.integrations.headset.client import client_from_settings
             from app.integrations.headset.pull import headset_sync

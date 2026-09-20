@@ -354,7 +354,7 @@ What Aurora needs from outside the repository, in the order it pays off:
 
 | # | Item | Where it goes | Without it |
 |---|---|---|---|
-| 1 | Headset MCP endpoint URL + token, callable from the server | `HEADSET_MCP_URL`, `HEADSET_MCP_TOKEN` | no nightly sales; replay recorded pulls with `headset-import-dir` |
+| 1 | Headset MCP endpoint (`https://mcp.headset.io`) and one browser sign-in on the server (`headset-login`), or a static token | `HEADSET_MCP_URL`, then `AURORA_HEADSET=1 bash deploy/install.sh` | no nightly sales; replay recorded pulls with `headset-import-dir` |
 | 2 | `DEFAULT_SCOPE=state:FL` and a Headset store filter of `FL -` on the first backfill | `backend/.env` | the state view blends other states |
 | 3 | Google Sheets shared "anyone with the link", SharePoint link "anyone with the link" | `MARKET_SHEET_ID`, `DEALS_SHEET_ID`, `PROMOTIONS_URL` | no market read, no competitor pressure, promotions by CSV only |
 | 4 | A POS discount name column in the promotions workbook | the workbook | promotions import but cannot be measured against the feed |

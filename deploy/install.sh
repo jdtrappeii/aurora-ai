@@ -185,9 +185,10 @@ collect() {
   while read -r -t 0.2 _ </dev/tty; do :; done   # drop any pasted-ahead lines
   say "Keys and links (press Enter to keep what is already there; nothing is echoed for secrets)"
   if [ "${AURORA_HEADSET:-0}" = "1" ]; then
-    echo "Headset"
+    echo "Headset (the MCP endpoint; sign-in happens after the build unless a static token is given)"
+    [ -n "$(getenv $be HEADSET_MCP_URL)" ] || setenv $be HEADSET_MCP_URL "https://mcp.headset.io"
     ask $be HEADSET_MCP_URL     "MCP endpoint URL"
-    ask $be HEADSET_MCP_TOKEN   "MCP token" secret
+    ask $be HEADSET_MCP_TOKEN   "Static token (blank = browser sign-in)" secret
   else
     echo "Headset: not configured (run with AURORA_HEADSET=1 when cleared); the sync reports it as skipped"
   fi
@@ -279,6 +280,21 @@ generate() {
   fi
 }
 
+# ---------------------------------------------------------------- 5b. headset sign-in
+# One browser sign-in; the tokens land on the data volume and refresh on their own.
+headset_login() {
+  [ "${AURORA_HEADSET:-0}" = "1" ] || return 0
+  [ -z "$(getenv backend/.env HEADSET_MCP_TOKEN)" ] || return 0
+  [ "${AURORA_NONINTERACTIVE:-0}" != "1" ] || return 0
+  if docker compose run --rm -T api python -m app.cli headset-status 2>/dev/null | grep -q '"logged_in": true'; then
+    echo "  Headset: already signed in"; return 0
+  fi
+  say "Headset sign-in (one time)"
+  echo "  A link will be printed. Open it in any browser, sign in to Headset, approve, then paste the"
+  echo "  address the browser lands on (it will look like an error page: that is expected)."
+  docker compose run --rm api python -m app.cli headset-login </dev/tty || warn "Headset sign-in did not complete; run: docker compose run --rm api python -m app.cli headset-login"
+}
+
 # ---------------------------------------------------------------- 6. run
 launch() {
   say "Building and starting the stack"
@@ -289,6 +305,7 @@ launch() {
     if docker compose exec -T api python -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health',timeout=3)" >/dev/null 2>&1; then break; fi
     sleep 2
   done
+  headset_login
   say "First sync: $BACKFILL_DAYS days back, Headset stores matching '$STORE_FILTER'"
   docker compose run --rm -T api python -m app.cli sync-all --backfill-days "$BACKFILL_DAYS" --stores "$STORE_FILTER" || warn "sync-all exited non-zero; the summary above says which step failed"
   say "Done"
