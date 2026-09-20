@@ -1,0 +1,12 @@
+{
+  "client_id": "https://jdtrappeii.github.io/aurora-ai/oauth/client.json",
+  "client_name": "Aurora AI",
+  "client_uri": "https://github.com/jdtrappeii/aurora-ai",
+  "redirect_uris": ["http://localhost:8765/callback", "http://127.0.0.1:8765/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "scope": "offline_access",
+  "software_id": "aurora-ai",
+  "software_version": "1.0"
+}

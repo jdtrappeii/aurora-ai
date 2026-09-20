@@ -1,0 +1,43 @@
+# Aurora behind one door. Everything needs the login except the heartbeat
+# endpoint, which store devices call with their own token.
+#
+#   AURORA_DOMAIN       leave ":80" for plain HTTP on a LAN, or set a hostname
+#                       (e.g. aurora.example.com) and Caddy gets a certificate itself
+#   AURORA_USER         login name
+#   AURORA_PASSWORD_HASH  from: docker compose run --rm proxy caddy hash-password
+{$AURORA_DOMAIN::80} {
+	encode gzip
+
+	@heartbeat path /api/heartbeat /api/heartbeat/*
+	handle @heartbeat {
+		reverse_proxy api:8000
+	}
+
+	handle /api/* {
+		basic_auth {
+			{$AURORA_USER} {$AURORA_PASSWORD_HASH}
+		}
+		reverse_proxy api:8000
+	}
+
+	handle /docs* {
+		basic_auth {
+			{$AURORA_USER} {$AURORA_PASSWORD_HASH}
+		}
+		reverse_proxy api:8000
+	}
+
+	handle /openapi.json {
+		basic_auth {
+			{$AURORA_USER} {$AURORA_PASSWORD_HASH}
+		}
+		reverse_proxy api:8000
+	}
+
+	handle {
+		basic_auth {
+			{$AURORA_USER} {$AURORA_PASSWORD_HASH}
+		}
+		reverse_proxy web:3000
+	}
+}

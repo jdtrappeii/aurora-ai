@@ -1,0 +1,104 @@
+# Aurora on one box: Postgres, the API, the dashboard, a scheduler that runs
+# every configured sync nightly, and a Caddy proxy that is the only published
+# port and puts a login in front of everything (heartbeat pings excepted).
+# Secrets and links live in backend/.env and the compose .env, never in the
+# image or the repo. Recorded Headset pulls persist in the data volume.
+#
+#   cp backend/.env.example backend/.env                       # keys and share links
+#   cp .env.example .env                                       # POSTGRES_PASSWORD, AURORA_USER, AURORA_PASSWORD_HASH, AURORA_DOMAIN
+#   docker compose run --rm proxy caddy hash-password          # paste the hash into .env
+#   docker compose up -d --build
+#   docker compose run --rm api python -m app.cli sync-all --backfill-days 90   # first load
+#   open http://<server>   (or https://<AURORA_DOMAIN> once DNS points here)
+
+# Explicit project name: isolated from any other compose stack on the box.
+name: aurora
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: aurora-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurora}
+      POSTGRES_DB: aurora
+    volumes:
+      - aurora_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    container_name: aurora-api
+    restart: unless-stopped
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://aurora:${POSTGRES_PASSWORD:-aurora}@postgres:5432/aurora
+      HEADSET_DATA_DIR: /data/headset
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    volumes:
+      - aurora_data:/data
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    build: ./backend
+    container_name: aurora-scheduler
+    restart: unless-stopped
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://aurora:${POSTGRES_PASSWORD:-aurora}@postgres:5432/aurora
+      HEADSET_DATA_DIR: /data/headset
+      SYNC_HOUR_UTC: ${SYNC_HOUR_UTC:-08}   # 08:00 UTC = 4am Eastern
+    volumes:
+      - aurora_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m app.scheduler
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # empty = same origin: the browser calls /api/... through the proxy, so
+        # the login cookie covers the API too and no token ships in the bundle
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-}
+    container_name: aurora-web
+    restart: unless-stopped
+    expose:
+      - "3000"
+    depends_on:
+      - api
+
+  proxy:
+    image: caddy:2
+    container_name: aurora-proxy
+    restart: unless-stopped
+    environment:
+      AURORA_DOMAIN: ${AURORA_DOMAIN:-:80}
+      AURORA_USER: ${AURORA_USER:-aurora}
+      AURORA_PASSWORD_HASH: "${AURORA_PASSWORD_HASH:?set AURORA_PASSWORD_HASH in .env (docker compose run --rm proxy caddy hash-password)}"
+    ports:
+      # Bound to loopback by default: reach it over an SSH tunnel or set
+      # AURORA_BIND to the box's Tailscale IP. Never 0.0.0.0 on a public VPS.
+      - "${AURORA_BIND:-127.0.0.1}:${AURORA_HTTP_PORT:-8080}:80"
+      - "${AURORA_BIND:-127.0.0.1}:${AURORA_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - aurora_caddy:/data
+    depends_on:
+      - web
+      - api
+
+volumes:
+  aurora_pgdata:
+  aurora_data:
+  aurora_caddy:
