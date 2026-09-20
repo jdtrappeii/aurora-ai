@@ -358,6 +358,7 @@ What Aurora needs from outside the repository, in the order it pays off:
 | 2 | `DEFAULT_SCOPE=state:FL` and a Headset store filter of `FL -` on the first backfill | `backend/.env` | the state view blends other states |
 | 3 | Google Sheets shared "anyone with the link", SharePoint link "anyone with the link" | `MARKET_SHEET_ID`, `DEALS_SHEET_ID`, `PROMOTIONS_URL` | no market read, no competitor pressure, promotions by CSV only |
 | 4 | A POS discount name column in the promotions workbook | the workbook | promotions import but cannot be measured against the feed |
+| 4b | Approval to load the workbook's own statewide day totals (net/gross/discount/ROI per promo day) | `PROMOTIONS_IMPORT_PERFORMANCE=true` | promotion cards show no statewide baseline until Headset is on |
 | 5 | Store coordinates: `gmb-import` the Business Profile export (addresses, hours, opening dates), then `geocode-stores` | database | no local events, traffic or weather per store |
 | 6 | Free keys: Ticketmaster, SeatGeek (FL511 traffic needs none) | `backend/.env` | calendar and traffic only |
 | 7 | SMTP credentials and recipients | `SMTP_*`, `REPORT_TO` | report on the dashboard only, no Monday email |

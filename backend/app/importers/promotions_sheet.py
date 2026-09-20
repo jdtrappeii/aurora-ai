@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.importers.csv_importer import ImportResult
 from app.integrations.sheets import cell_date, cell_num, cell_str, norm_header
-from app.models import Promotion, Store
+from app.models import PromoDayPerformance, Promotion, Store
 
 ALIASES = {
     "name": ("name", "promotion", "promo", "promo_name", "promotion_name", "deal", "deal_name", "offer", "title", "promo_type", "campaign"),
@@ -285,3 +285,47 @@ def active_days(promo: Promotion, start: date, end: date) -> list[date]:
             out.append(d)
         d += timedelta(days=1)
     return out
+
+
+PERF_COLUMNS = {   # workbook header (normalised) -> model column
+    "net_sales": "net_sales", "gross_sales": "gross_sales", "discount_amount": "discount_amount", "discount_rate": "discount_rate",
+    "promo_efficiency_roi": "promo_roi", "promo_roi": "promo_roi", "sales_per_hour": "sales_per_hour",
+    "4_week_average_sales": "four_week_avg_sales", "forcasted_sales": "forecast_sales", "forecasted_sales": "forecast_sales",
+    "transaction_count": "transaction_count", "average_ticket": "average_ticket",
+}
+
+
+def import_promo_day_performance(session: Session, rows: list[dict], tab: str | None = None,
+                                 column_map: dict[str, str] | str | None = None) -> ImportResult:
+    """The statewide totals the promo calendar records per day. One row per date;
+    rows without any money column are ignored. Years are corrected from the
+    weekday column the same way the calendar import does it."""
+    res = ImportResult("promo_day_performance")
+    if isinstance(column_map, str):
+        column_map = json.loads(column_map) if column_map.strip() else None
+    existing = {p.day: p for p in session.execute(select(PromoDayPerformance)).scalars()}
+    for i, r in enumerate(rows, start=2):
+        start = cell_date(pick(r, "start", column_map))
+        if start is None:
+            res.skipped += 1
+            continue
+        start = fix_year_by_weekday(start, day_name_of(r))
+        values = {}
+        for header, col in PERF_COLUMNS.items():
+            v = cell_num(r.get(header))
+            if v is not None:
+                values[col] = int(v) if col == "transaction_count" else v
+        if not values:
+            res.skipped += 1
+            continue
+        values.update(source_tab=tab, weekday=day_name_of(r), notes=cell_str(pick(r, "notes", column_map)))
+        row = existing.get(start)
+        if row is None:
+            session.add(PromoDayPerformance(day=start, **values))
+            res.inserted += 1
+        else:
+            for k, v in values.items():
+                setattr(row, k, v)
+            res.updated += 1
+    session.commit()
+    return res

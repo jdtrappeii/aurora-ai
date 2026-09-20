@@ -201,6 +201,8 @@ collect() {
   ask $be MARKET_SHEET_ID  "OMMU dashboard sheet"
   ask $be DEALS_SHEET_ID   "Competitor deals sheet"
   ask $be PROMOTIONS_URL   "Promotions OneDrive link"
+  echo "  The workbook also carries statewide daily sales totals. Type true to import them (only once approved)."
+  ask $be PROMOTIONS_IMPORT_PERFORMANCE "Import workbook day totals (true/false)"
   for k in MARKET_SHEET_ID DEALS_SHEET_ID; do
     cur="$(getenv $be $k)"; [ -n "$cur" ] && setenv $be $k "$(sheet_id "$cur")"
   done

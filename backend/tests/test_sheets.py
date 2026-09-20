@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.analytics.discounts import promotion_feed
 from app.analytics.market import competitor_pressure, market_context
+from app.analytics.money import pct_change
 from app.analytics.periods import Period
 from app.analytics.promotions import promotion_results
 from app.importers.market import deals_to_events, import_market_rows, market_competition_events, offer_severity
@@ -21,7 +22,7 @@ from app.integrations.events.common import ProviderError
 from app.integrations.events.sync import upsert_events
 from app.integrations.sheets import google_sheet_csv_url, norm_header, onedrive_direct_url, read_table, rows_from_grid
 from app.integrations.sheets_sync import sheets_sync
-from app.models import DiscountDaily, ExternalEvent, MarketWeekly, Promotion, Store
+from app.models import DiscountDaily, ExternalEvent, MarketWeekly, PromoDayPerformance, Promotion, Store
 
 OMMU_CSV = b"""row_id,week_ending,report_date,source_url,mmtc_name_canonical,is_p13_fl,dispensing_locations,medical_marijuana_mg_thc,low_thc_cannabis_mg_cbd,marijuana_smoking_oz,share_thc_pct,share_flower_pct,share_locations_pct,statewide_qualified_patients,is_totals_row
 2026-09-03__trulieve,2026-09-03,9/4/2026,https://x/0903.pdf,Trulieve,FALSE,165,1.20E+08,0,50000,26.0,33.0,22.0,941000,FALSE
@@ -432,3 +433,38 @@ def test_sync_reads_every_promo_performance_tab(session):
     assert rep.details["promotions"]["tab"] == "Promo Performance 2025, Promo Performance 2026"
     names = sorted(p.name for p in session.execute(select(Promotion)).scalars())
     assert names == ["42% Off Storewide", "50% Flower", "55% Off Edibles"]
+
+
+def test_workbook_day_totals_are_gated_and_feed_the_statewide_block(session):
+    from app.importers.promotions_sheet import import_promo_day_performance
+    from app.analytics.promotions import promotion_results
+    rows = [
+        {"january_daily_promos": "Thursday", "start_date": "2025-01-01", "promo": "55% Off Edibles; 42% Off Storewide", "notes": "NYD",
+         "net_sales": 57736.53, "gross_sales": 125343, "discount_amount": 67606.47, "promo_efficiency_roi": 0.854, "discount_rate": 0.539,
+         "sales_per_hour": 9622.755, "4_week_average_sales": 79674, "forcasted_sales": 93550, "transaction_count": None},
+        {"january_daily_promos": "Friday", "start_date": "2025-01-02", "promo": "Manager's Special", "notes": None,
+         "net_sales": 101006.3, "gross_sales": 190179, "discount_amount": 89172.7, "promo_efficiency_roi": 1.1327, "4_week_average_sales": 103165},
+        {"january_daily_promos": None, "start_date": None, "promo": "no date row"},
+    ]
+    # off by default: the sync leaves the table empty
+    grid = [["January Daily Promos", "Start Date", "Promo", "Notes", "Net Sales", "Gross Sales", "Discount Amount", "Promo Efficiency ROI", "4 Week Average Sales"],
+            ["Thursday", date(2025, 1, 1), "55% Off Edibles; 42% Off Storewide", "NYD", 57736.53, 125343, 67606.47, 0.854, 79674]]
+    wb = _workbook({"Promo Performance 2026": grid})
+    with mock(lambda req: (200, wb, {"content-type": "application/octet-stream"})) as http:
+        rep = sheets_sync(session, http, settings(promotions_url="https://netorg-my.sharepoint.com/:x:/g/personal/x/abc?e=1"), which=("promotions",))
+    assert rep.details["promotions"]["day_totals"].startswith("not imported")
+    assert session.execute(select(PromoDayPerformance)).scalars().all() == []
+    # switched on: one row per corrected date, and the promotion cards gain a statewide block
+    r = import_promo_day_performance(session, rows, "Promo Performance 2026")
+    assert (r.inserted, r.updated, r.skipped) == (2, 0, 1)
+    perf = {p.day: p for p in session.execute(select(PromoDayPerformance)).scalars()}
+    assert set(perf) == {date(2026, 1, 1), date(2026, 1, 2)} and perf[date(2026, 1, 1)].net_sales == Decimal("57736.53")
+    assert perf[date(2026, 1, 1)].four_week_avg_sales == Decimal("79674.00") and perf[date(2026, 1, 2)].promo_roi == Decimal("1.1327")
+    r2 = import_promo_day_performance(session, rows, "Promo Performance 2026")
+    assert (r2.inserted, r2.updated) == (0, 2)
+    import_promotion_rows(session, rows)   # the calendar rows themselves
+    by = {p["promotion"]: p for p in promotion_results(session)}
+    sw = by["42% Off Storewide"]["statewide"]
+    assert sw["net_sales"] == Decimal("57736.53") and sw["discount_rate"] == Decimal("0.5394") and sw["days_with_data"] == 1
+    assert sw["vs_four_week_pct"] == pct_change(Decimal("57736.53"), Decimal("79674"))
+    assert by["Manager's Special"]["statewide"]["promo_roi"] == Decimal("1.1327")

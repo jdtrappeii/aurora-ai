@@ -58,6 +58,19 @@ export default function PromotionsPanel({ promos }: { promos: Promotion[] }) {
                 </div>
               </div>
             )}
+            {p.statewide && (
+              <div className="stat">
+                <small>Statewide day totals · from the promotions workbook</small>
+                {money(p.statewide.net_sales_per_day)} <span className="muted">net sales / day</span>
+                <div className={p.statewide.vs_four_week_pct != null && p.statewide.vs_four_week_pct < 0 ? "neg" : "pos"}>
+                  {p.statewide.vs_four_week_pct != null ? `${spct(p.statewide.vs_four_week_pct)} vs prior 4-week avg` : "no 4-week average"}
+                </div>
+                <div className="muted">
+                  {money(p.statewide.discount_amount)} discount · {p.statewide.discount_rate != null ? `${pct(p.statewide.discount_rate, 0)} rate` : ""}
+                  {p.statewide.promo_roi != null ? ` · ROI ${Number(p.statewide.promo_roi).toFixed(2)}` : ""}
+                </div>
+              </div>
+            )}
             <p>{p.explanation}</p>
           </div>
         );

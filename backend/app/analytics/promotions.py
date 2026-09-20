@@ -18,9 +18,39 @@ from app.analytics.financial import summarize_lines
 from app.analytics.lines import LineRow, completed, load_lines
 from app.analytics.money import ZERO, money, pct_change, rate, safe_div
 from app.analytics.periods import Period
-from app.models import Promotion
+from app.models import PromoDayPerformance, Promotion
 
 BASELINE_DAYS = 28
+
+
+def statewide_day_totals(session: Session, promo: Promotion) -> dict | None:
+    """The workbook's own statewide totals for the promotion's days, when they
+    were imported: net/gross/discount summed over the window, the return figure
+    and the four-week comparison from the sheet. None when nothing is loaded."""
+    from app.importers.promotions_sheet import active_days
+    days = active_days(promo, promo.start_date, promo.end_date)
+    if not days:
+        return None
+    rows = session.execute(select(PromoDayPerformance).where(PromoDayPerformance.day.in_(days))).scalars().all()
+    if not rows:
+        return None
+    n = len(rows)
+    net = sum((r.net_sales or ZERO) for r in rows)
+    gross = sum((r.gross_sales or ZERO) for r in rows)
+    disc = sum((r.discount_amount or ZERO) for r in rows)
+    four = [r.four_week_avg_sales for r in rows if r.four_week_avg_sales is not None]
+    rois = [r.promo_roi for r in rows if r.promo_roi is not None]
+    four_avg = safe_div(sum(four), len(four)) if four else None
+    return {
+        "days_with_data": n, "scheduled_days": len(days),
+        "net_sales": money(net), "gross_sales": money(gross), "discount_amount": money(disc),
+        "net_sales_per_day": money(safe_div(net, n)),
+        "discount_rate": rate(safe_div(disc, gross)) if gross else None,
+        "promo_roi": rate(safe_div(sum(rois), len(rois))) if rois else None,
+        "four_week_avg_sales": money(four_avg) if four_avg is not None else None,
+        "vs_four_week_pct": pct_change(safe_div(net, n), four_avg) if four_avg else None,
+        "source": "promotions workbook (statewide)",
+    }
 
 
 def eligible_skus(promo: Promotion) -> set[str]:
@@ -97,6 +127,7 @@ def promotion_results(session: Session, store_code: str | None = None, promotion
                 "audience": promo.audience,
                 "source": promo.source,
                 "feed": promotion_feed(session, promo, store_code),
+                "statewide": statewide_day_totals(session, promo),
                 **promo_summary,
                 **promo_daily,
                 "attachment_rate": rate(safe_div(len(promo_tickets), len(all_tickets))),

@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     promotions_url: str = ""               # OneDrive share link, Google Sheet share link, https URL or local path to the promotions workbook
     promotions_sheet: str = ""             # worksheet name (blank = first)
     promotions_column_map: str = ""        # JSON {"name": "Promo", "start": "Start Date", ...} when headers are unusual
+    promotions_import_performance: bool = False   # also load the workbook's own statewide day totals (net/gross/discount/ROI); off until approved
     market_centroid_lat: float = 28.1      # where statewide events are placed (Florida)
     market_centroid_lon: float = -81.6
 

@@ -22,7 +22,7 @@ from sqlalchemy import select
 from app.models import MarketWeekly
 from app.importers.csv_importer import ImportResult
 from app.importers.market import deals_to_events, import_market_rows, market_competition_events
-from app.importers.promotions_sheet import import_promotion_rows
+from app.importers.promotions_sheet import import_promo_day_performance, import_promotion_rows
 from app.integrations.events.common import ProviderError
 from app.integrations.events.sync import upsert_events
 from app.integrations.sheets import fetch, google_sheet_csv, google_sheet_xlsx, pick_tab, read_table, workbook_tabs
@@ -119,6 +119,12 @@ def sheets_sync(session: Session, http: httpx.Client, settings, which: set[str] 
                 r = import_promotion_rows(session, rows, settings.promotions_column_map or None, source="sheet")
                 rep.results.append(r)
                 rep.details["promotions"] = {"tab": tab, "rows": len(rows), "headers": sorted(rows[0].keys()) if rows else []}
+                if getattr(settings, "promotions_import_performance", False):
+                    pr = import_promo_day_performance(session, rows, tab, settings.promotions_column_map or None)
+                    rep.results.append(pr)
+                    rep.details["promotions"]["day_totals"] = {"inserted": pr.inserted, "updated": pr.updated, "skipped": pr.skipped}
+                else:
+                    rep.details["promotions"]["day_totals"] = "not imported (PROMOTIONS_IMPORT_PERFORMANCE is off)"
                 rep.ran.append("promotions")
             except ProviderError as e:
                 rep.warnings.append(f"promotions: {e}")

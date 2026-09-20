@@ -107,6 +107,11 @@ export interface Promotion extends Omit<Summary, "period"> {
   audience: string | null;
   source: string;
   feed: PromotionFeed | null;
+  statewide: {
+    days_with_data: number; scheduled_days: number; net_sales: number; gross_sales: number; discount_amount: number;
+    net_sales_per_day: number; discount_rate: number | null; promo_roi: number | null; four_week_avg_sales: number | null;
+    vs_four_week_pct: number | null; source: string;
+  } | null;
   start_date: string;
   end_date: string;
   days: number;

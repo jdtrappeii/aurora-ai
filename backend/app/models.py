@@ -253,6 +253,28 @@ class DiscountDaily(Base):
 
 
 # ---------------------------------------------------------------------------
+# Statewide day totals kept in the promotions workbook itself (one row per promo
+# day: net/gross sales, discount dollars, promo return). Imported only when
+# PROMOTIONS_IMPORT_PERFORMANCE is on, since it is sales data of its own.
+class PromoDayPerformance(Base):
+    __tablename__ = "promo_day_performance"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date, unique=True)
+    source_tab: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    weekday: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    net_sales: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    gross_sales: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    discount_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    promo_roi: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    sales_per_hour: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    four_week_avg_sales: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    forecast_sales: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    transaction_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    average_ticket: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+
 # Market context (state regulator weekly report, e.g. Florida OMMU)
 # ---------------------------------------------------------------------------
 
