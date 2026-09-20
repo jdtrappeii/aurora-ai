@@ -177,6 +177,8 @@ def offer_severity(offer_value: str | None, offer_type: str | None) -> tuple[str
     return "minor", None
 
 
+UNKNOWN_OPERATOR = {"unknown", "unresolved", "n/a", "na", "none", "tbd", "?"}
+
 # Florida MMTC brand names as they appear in deal copy, mapped to the operator
 # names the OMMU report uses. Names from the market_weekly table are added at
 # run time, so this only needs the cases where the brand differs from the licensee.
@@ -255,23 +257,26 @@ def deals_to_events(rows: list[dict], centroid: tuple[float, float], self_operat
     match_operator = operator_matcher(known_operators)
     for r in rows:
         operator = cell_str(pick(r, DEAL_ALIASES["operator"]))
+        if operator and operator.casefold() in UNKNOWN_OPERATOR:
+            operator = None
         when = cell_date(pick(r, DEAL_ALIASES["when"]))
-        text_blob = " ".join(str(v) for v in r.values() if v not in (None, ""))
+        cells = [str(v) for v in r.values() if v not in (None, "")]
+        text_blob = " ".join(cells)
         if not operator:
             if when is None and not text_blob.strip():
                 rep.skipped_blank += 1   # an empty formatted row
                 continue
             # Site scrapes often leave the operator blank while the brand sits in the
-            # scanned text or subject. Recover it from the names we know.
-            operator = match_operator(" ".join(filter(None, [cell_str(pick(r, DEAL_ALIASES["subject"])),
-                                                              cell_str(pick(r, DEAL_ALIASES["hook"])), text_blob[:400]])))
+            # scanned text somewhere in the row. Recover it from the names we know.
+            operator = match_operator(text_blob)
             if operator:
                 rep.recovered_operator += 1
             else:
                 rep.skipped_no_operator += 1
                 if len(rep.unattributed_samples) < 5 and when is not None:
-                    snippet = (cell_str(pick(r, DEAL_ALIASES["subject"])) or text_blob)[:90]
-                    rep.unattributed_samples.append(f"{when.isoformat()} · {snippet}")
+                    prose = [c for c in cells if c.count(" ") >= 2 and not re.match(r"^\d{4}-\d{2}-\d{2}", c)]
+                    longest = max(prose or cells, key=len) if cells else ""
+                    rep.unattributed_samples.append(f"{when.isoformat()} · {longest[:120]}")
                 continue
         if self_norm and (self_norm in operator.casefold() or operator.casefold() in self_norm):
             rep.skipped_self += 1
