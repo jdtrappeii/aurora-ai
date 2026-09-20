@@ -1,4 +1,4 @@
-"""One scope string for every analytics function: a store code ("HS10136"),
+"""One scope string for every analytics function: a store code ("HS10001"),
 a state ("state:FL") or None for everything. Every filter goes through
 store_predicate so a state view is the same code path as a store view."""
 from __future__ import annotations

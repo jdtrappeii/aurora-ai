@@ -32,8 +32,8 @@ def test_scope_helpers():
 
 def test_state_scope_sums_only_that_state(session, seed):
     seed.store.state = "NV"
-    pace = Store(code="HS10136", name="Pace", state="FL")
-    tampa = Store(code="HS10132", name="Tampa", state="FL")
+    pace = Store(code="HS10001", name="Pace", state="FL")
+    tampa = Store(code="HS10002", name="Tampa", state="FL")
     session.add_all([pace, tampa])
     session.commit()
     a = seed.product("A", "Flower", "10", "25")
@@ -46,13 +46,13 @@ def test_state_scope_sums_only_that_state(session, seed):
     assert financial_summary(session, week, "state:FL").revenue == Decimal("150.00")
     assert financial_summary(session, week, "state:FL").transactions == 2
     assert financial_summary(session, week, "state:NV").revenue == Decimal("25.00")
-    assert financial_summary(session, week, "HS10136").revenue == Decimal("50.00")
-    assert [s.code for s in stores_in_scope(session, "state:FL")] == ["HS10132", "HS10136"]
-    assert scope_label(session, "state:FL") == "All FL stores" and scope_label(session, "HS10136") == "Pace"
+    assert financial_summary(session, week, "HS10001").revenue == Decimal("50.00")
+    assert [s.code for s in stores_in_scope(session, "state:FL")] == ["HS10001", "HS10002"]
+    assert scope_label(session, "state:FL") == "All FL stores" and scope_label(session, "HS10001") == "Pace"
 
     rep = weekly_report(session, MONDAY + timedelta(days=6), "state:FL")
     assert rep["store_name"] == "All FL stores"
-    assert [r["store"] for r in rep["stores"]] == ["HS10136", "HS10132"]  # ranked by GP change: Pace +40, Tampa +80... ascending
+    assert [r["store"] for r in rep["stores"]] == ["HS10001", "HS10002"]  # ranked by GP change: Pace +40, Tampa +80... ascending
     assert rep["headline"]["current"]["revenue"] == Decimal("150.00")
     assert rep["coverage"]["stores_reporting"] == 2
 

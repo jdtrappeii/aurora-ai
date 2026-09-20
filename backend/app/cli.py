@@ -4,12 +4,12 @@
     python -m app.cli import-dir ../sample_data
     python -m app.cli weekly [--as-of 2026-09-11] [--store MAIN]
     python -m app.cli external [--as-of 2026-09-11] [--store MAIN]
-    python -m app.cli discounts [--as-of 2026-09-11] [--store HS10136]
+    python -m app.cli discounts [--as-of 2026-09-11] [--store HS10001]
 
 Headset connector:
     python -m app.cli headset-sync --start 2026-09-01 --end 2026-09-14 [--stores "FL -"] [--record data/headset]
     python -m app.cli headset-import-dir data/headset          # replay recorded pulls
-    python -m app.cli headset-reconcile [--store HS10136]      # product lines vs store-day totals
+    python -m app.cli headset-reconcile [--store HS10001]      # product lines vs store-day totals
 
 External events (free stack):
     python -m app.cli gmb-import data/gmb/locations.csv           # Google Business Profile export -> addresses, hours, opening dates
@@ -17,7 +17,7 @@ External events (free stack):
     python -m app.cli events-sync --start 2026-09-01 --end 2026-10-15   # Ticketmaster / SeatGeek / FL511 / calendar
     python -m app.cli heartbeat-events [--min-gap 5]           # silences between heartbeat runs -> outage events
     python -m app.cli heartbeat-status
-    python -m app.cli weather-sync --start 2026-06-01 --end 2026-10-01 [--store HS10136] [--no-alerts]
+    python -m app.cli weather-sync --start 2026-06-01 --end 2026-10-01 [--store HS10001] [--no-alerts]
 
 Spreadsheets (OMMU market dashboard, competitor deals, promotions workbook):
     python -m app.cli sheets-sync [--only market|deals|promotions]
@@ -28,7 +28,7 @@ Everything that is configured, in one go (what the scheduler runs nightly):
     python -m app.cli sync-all [--backfill-days 90] [--days 3]
 
 The weekly owner report:
-    python -m app.cli weekly-report [--as-of 2026-09-14] [--store HS10136] [--out report.html] [--email]
+    python -m app.cli weekly-report [--as-of 2026-09-14] [--store HS10001] [--out report.html] [--email]
 
 Ask the analyst (needs ANTHROPIC_API_KEY):
     python -m app.cli ask "why was Pace down on Tuesday" [--scope state:FL] [--as-of 2026-09-15]

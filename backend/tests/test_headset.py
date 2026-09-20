@@ -25,8 +25,8 @@ from app.integrations.headset.pull import _looker_range, headset_sync
 from app.models import DailyStoreSummary, InventorySnapshot, Product, Sale, SaleItem, Store
 
 STORES = {"stores": [
-    {"storeId": 10136, "accountId": 1, "name": "FL - Demo - Pace", "address": {"city": "Milton", "state": "FL", "postalCode": "32571"}},
-    {"storeId": 10132, "accountId": 1, "name": "FL - Demo - Tampa ", "address": {"city": "Tampa", "state": "FL", "postalCode": "33606"}},
+    {"storeId": 10001, "accountId": 1, "name": "FL - Demo - Pace", "address": {"city": "Milton", "state": "FL", "postalCode": "32571"}},
+    {"storeId": 10002, "accountId": 1, "name": "FL - Demo - Tampa ", "address": {"city": "Tampa", "state": "FL", "postalCode": "33606"}},
 ]}
 PACE = "FL - Demo - Pace"
 DAY = date(2026, 9, 15)  # a Tuesday
@@ -74,10 +74,10 @@ def load_all(session):
 def test_store_codes_and_timezones(session):
     r = import_envelope(session, env("stores", STORES))
     assert (r.inserted, r.errors) == (2, [])
-    pace = session.execute(select(Store).where(Store.code == store_code_for(10136))).scalar_one()
+    pace = session.execute(select(Store).where(Store.code == store_code_for(10001))).scalar_one()
     assert pace.name == "FL - Demo - Pace"
     assert pace.timezone == "America/Chicago"  # panhandle zip
-    tampa = session.execute(select(Store).where(Store.code == "HS10132")).scalar_one()
+    tampa = session.execute(select(Store).where(Store.code == "HS10002")).scalar_one()
     assert tampa.name == "FL - Demo - Tampa"  # trailing space trimmed
     assert tampa.timezone == "America/New_York"
     assert timezone_for("NV", "89109") == "America/Los_Angeles"
@@ -100,14 +100,14 @@ def test_product_lines_keep_exact_totals(session):
     items = session.execute(select(SaleItem).join(Sale).order_by(Sale.transaction_id)).scalars().all()
     a = next(i for i in items if i.sale.transaction_id.endswith(":A1"))
     assert a.sale.source == "headset"
-    assert a.sale.transaction_id == "HS:HS10136:2026-09-15:A1"
+    assert a.sale.transaction_id == "HS:HS10001:2026-09-15:A1"
     assert (a.quantity, a.ticket_count) == (3, 2)
     assert (a.gross_total, a.revenue_total, a.cogs_total) == (Decimal("100.00"), Decimal("33.33"), Decimal("10.00"))
     assert a.discount_amount == Decimal("66.67")
     assert a.sale_price == Decimal("11.11")  # 33.33 / 3 informational only
     assert a.unit_cost == Decimal("3.3333")
 
-    s = financial_summary(session, Period("day", DAY, DAY), "HS10136")
+    s = financial_summary(session, Period("day", DAY, DAY), "HS10001")
     assert s.gross_sales == Decimal("170.00")
     assert s.revenue == Decimal("83.33")  # not 3*11.11 + 7*7.14 = 83.31
     assert s.discount_total == Decimal("86.67")
@@ -121,20 +121,20 @@ def test_product_lines_keep_exact_totals(session):
 def test_ticket_count_without_store_day_falls_back_to_line_tickets(session):
     import_envelope(session, env("stores", STORES))
     import_envelope(session, env("products", PRODUCTS, store_name=PACE, sold_date="2026-09-15"))
-    s = financial_summary(session, Period("day", DAY, DAY), "HS10136")
+    s = financial_summary(session, Period("day", DAY, DAY), "HS10001")
     assert s.transactions == 7  # 2 + 5: the best we know without the feed's day total
 
 
 def test_product_and_category_breakdowns(session):
     load_all(session)
-    rows = product_profitability(session, Period("day", DAY, DAY), "HS10136")
+    rows = product_profitability(session, Period("day", DAY, DAY), "HS10001")
     by_sku = {r["sku"]: r for r in rows}
     assert by_sku["A1"]["category"] == "Flower Pouch 3.5g"  # learned from inventory
     assert by_sku["A1"]["brand"] == "Demo"
     assert by_sku["A1"]["transactions"] == 2  # exact at product grain
     assert by_sku["A1"]["gross_profit"] == Decimal("23.33")
     assert by_sku["B1"]["gross_profit"] == Decimal("29.00")
-    cats = {r["category"]: r for r in category_profitability(session, Period("day", DAY, DAY), "HS10136")}
+    cats = {r["category"]: r for r in category_profitability(session, Period("day", DAY, DAY), "HS10001")}
     assert cats["Vape Cart 1g"]["revenue"] == Decimal("50.00")
     assert cats["Vape Cart 1g"]["revenue_share"] == Decimal("0.6000")  # 50 / 83.33
 
@@ -157,7 +157,7 @@ def test_inventory_snapshot_and_report(session):
     assert snaps["A1"].quantity_on_hand == 40
     assert snaps["A1"].unit_cost == Decimal("3.3350")
     assert snaps["B1"].quantity_on_hand == 0
-    rep = inventory_report(session, DAY, "HS10136")
+    rep = inventory_report(session, DAY, "HS10001")
     assert rep["inventory_value"] == Decimal("133.40")
     items = {i["sku"]: i for i in rep["items"]}
     assert items["A1"]["units_sold_30d"] == 3
@@ -167,7 +167,7 @@ def test_inventory_snapshot_and_report(session):
 
 def test_discount_report(session):
     load_all(session)
-    rep = discount_report(session, Period("day", DAY, DAY), "HS10136")
+    rep = discount_report(session, Period("day", DAY, DAY), "HS10001")
     assert rep["total_discounts"] == Decimal("48.00")  # 45 + 3, undiscounted row excluded
     assert rep["undiscounted"]["revenue"] == Decimal("20.00")
     top = rep["codes"][0]
@@ -193,7 +193,7 @@ def test_reconcile_flags_partial_product_pull(session):
     # remove B1 by re-importing only A1 does not delete B1; simulate a restated day instead
     restated = {"rows": [{**STORE_DAYS["rows"][0], "total_revenue": 90.0}], "hasMore": False}
     import_envelope(session, env("store_days", restated))
-    r = reconcile(session, "HS10136")[0]
+    r = reconcile(session, "HS10001")[0]
     assert r["revenue_diff"] == Decimal("-6.67")
     assert r["feed_tickets"] == 6 and r["product_line_tickets"] == 7
     assert r["coverage"] == "mismatch"
@@ -267,7 +267,7 @@ def test_headset_sync_end_to_end(session, tmp_path):
         "products__fl-demo-pace__2026-09-14.json", "products__fl-demo-pace__2026-09-15.json",
         "store_days__2026-09-14__2026-09-15.json", "stores.json",
     ]
-    week = financial_summary(session, week_containing(DAY), "HS10136")
+    week = financial_summary(session, week_containing(DAY), "HS10001")
     assert week.revenue == Decimal("83.33") and week.transactions == 6
 
 
@@ -336,17 +336,17 @@ def test_api_import_headset_and_reports(client):
     rec = client.get("/api/headset/reconcile").json()
     assert rec == {"days": 1, "ok": 1, "mismatches": [], "missing": []}
 
-    disc = client.get("/api/metrics/discounts", params={"as_of": "2026-09-15", "store": "HS10136"}).json()
+    disc = client.get("/api/metrics/discounts", params={"as_of": "2026-09-15", "store": "HS10001"}).json()
     assert disc["total_discounts"] == 48.0
     assert disc["codes"][0]["discount_name"] == "Tuesday 60% Vapes"
 
-    dash = client.get("/api/dashboard", params={"as_of": "2026-09-15", "store": "HS10136"}).json()
+    dash = client.get("/api/dashboard", params={"as_of": "2026-09-15", "store": "HS10001"}).json()
     assert dash["weekly"]["current_week"]["revenue"] == 83.33
     assert dash["weekly"]["current_week"]["transactions"] == 6
     assert dash["discounts"]["code_count"] == 2
     assert {c["category"] for c in dash["categories"]} == {"Flower Pouch 3.5g", "Vape Cart 1g"}
     listing = client.get("/api/stores").json()
-    assert {s["code"] for s in listing["stores"]} == {"HS10136", "HS10132"}
+    assert {s["code"] for s in listing["stores"]} == {"HS10001", "HS10002"}
     assert [s["code"] for s in listing["scopes"]] == ["state:FL"]
 
 

@@ -100,7 +100,7 @@ def test_nws_alerts_parse_and_stamp():
 
 
 def test_weather_sync_end_to_end(session):
-    session.add(Store(code="HS10136", name="Pace", latitude=30.6, longitude=-87.16, timezone="America/Chicago"))
+    session.add(Store(code="HS10001", name="Pace", latitude=30.6, longitude=-87.16, timezone="America/Chicago"))
     session.add(Store(code="HS0", name="Unlocated"))
     session.commit()
 
@@ -122,9 +122,9 @@ def test_weather_sync_end_to_end(session):
     with mock(router) as http:
         rep = weather_sync(session, http, date(2026, 9, 10), date(2026, 9, 25), "aurora-test (x@y.z)", now=NOW,
                            forecast_url="https://api.test/v1/forecast", archive_url="https://archive.test/v1/archive", nws_url="https://nws.test/alerts")
-    assert rep.stores == ["HS10136"] and rep.skipped == ["HS0"] and rep.warnings == []
+    assert rep.stores == ["HS10001"] and rep.skipped == ["HS0"] and rep.warnings == []
     assert rep.calls == {"archive_calls": 1, "forecast_calls": 1, "nws_calls": 2}
-    assert rep.alerts["HS10136"]["alerts"] == 2 and rep.alerts["HS10136"]["hours_stamped"] == 24  # 9/10 01:00..23:00 Central + the 9/19 15:00 watch hour
+    assert rep.alerts["HS10001"]["alerts"] == 2 and rep.alerts["HS10001"]["hours_stamped"] == 24  # 9/10 01:00..23:00 Central + the 9/19 15:00 watch hour
 
     obs = session.execute(select(WeatherObservation).order_by(WeatherObservation.observed_at, WeatherObservation.is_forecast)).scalars().all()
     assert len(obs) == 28
@@ -135,12 +135,12 @@ def test_weather_sync_end_to_end(session):
     assert by[(datetime(2026, 9, 10, 5), 0)].alert == "Tropical Storm Warning" and by[(datetime(2026, 9, 10, 0), 0)].alert is None
 
     events = {e.event_id: e for e in session.execute(select(ExternalEvent)).scalars()}
-    assert set(events) == {"nws:HS10136:urn:a:1", "nws:HS10136:urn:a:9"}
-    assert events["nws:HS10136:urn:a:1"].severity == "severe" and events["nws:HS10136:urn:a:1"].is_forecast == 0
-    assert events["nws:HS10136:urn:a:9"].is_forecast == 1 and events["nws:HS10136:urn:a:9"].store_id is not None
+    assert set(events) == {"nws:HS10001:urn:a:1", "nws:HS10001:urn:a:9"}
+    assert events["nws:HS10001:urn:a:1"].severity == "severe" and events["nws:HS10001:urn:a:1"].is_forecast == 0
+    assert events["nws:HS10001:urn:a:9"].is_forecast == 1 and events["nws:HS10001:urn:a:9"].store_id is not None
 
     # the engine's daily summary picks it up: rain + alert on 9/10, heat on 9/18 (max 97 forecast excluded -> 96 observed)
-    store = session.execute(select(Store).where(Store.code == "HS10136")).scalar_one()
+    store = session.execute(select(Store).where(Store.code == "HS10001")).scalar_one()
     days = daily_weather(session, store)
     d10 = days[date(2026, 9, 10)]
     assert d10["precipitation_in"] == Decimal("7.2") and "alert" in weather_tags(d10) and "heavy_rain" in weather_tags(d10)

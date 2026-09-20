@@ -125,7 +125,7 @@ replayed without touching Headset again:
 ```bash
 python -m app.cli headset-import-dir data/headset
 python -m app.cli headset-reconcile          # product lines vs store-day totals
-python -m app.cli discounts --as-of 2026-09-15 --store HS10136
+python -m app.cli discounts --as-of 2026-09-15 --store HS10001
 ```
 
 Envelopes can also come from any other MCP client (Claude, a script): save the
@@ -254,8 +254,8 @@ request (a Raspberry Pi, a smart plug with a webhook, a cron job on the POS
 machine) at:
 
 ```
-POST /api/heartbeat?store=HS10136&kind=power&token=<HEARTBEAT_TOKEN>      every minute
-POST /api/heartbeat?store=HS10136&kind=network&token=<HEARTBEAT_TOKEN>
+POST /api/heartbeat?store=HS10001&kind=power&token=<HEARTBEAT_TOKEN>      every minute
+POST /api/heartbeat?store=HS10001&kind=network&token=<HEARTBEAT_TOKEN>
 ```
 
 Pings extend a `heartbeat_runs` row (one row per contiguous run, not per ping).
@@ -333,7 +333,7 @@ week as a collapse.
 ```bash
 python -m app.cli weekly-report --as-of 2026-09-14                 # text to the terminal
 python -m app.cli weekly-report --out report.html                   # self-contained HTML (email-safe)
-python -m app.cli weekly-report --store HS10136 --email             # one store, sent via SMTP
+python -m app.cli weekly-report --store HS10001 --email             # one store, sent via SMTP
 ```
 
 `GET /api/report/weekly?format=html` serves the same page (the dashboard's

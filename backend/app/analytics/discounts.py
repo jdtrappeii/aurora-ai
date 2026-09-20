@@ -97,7 +97,7 @@ def _tokens(text: str) -> tuple[set[str], set[str]]:
 
 def match_discount_names(promo_name: str, candidates: list[str]) -> list[str]:
     """POS discount codes whose figure and product words agree with a calendar
-    deal ("35% Off Planet 13 Flower" <-> "DD - Auto - 35% OFF ALL Planet 13 Flower!").
+    deal ("35% Off Demo Brand Flower" <-> "DD - Auto - 35% OFF ALL Demo Brand Flower!").
     Same figure and at least one shared product word; the generic patient
     programme codes (first-time, veterans...) never match a calendar deal."""
     figs, kws = _tokens(promo_name)

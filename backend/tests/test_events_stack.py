@@ -17,8 +17,8 @@ from app.integrations.events.sync import events_sync, upsert_events
 from app.integrations.geocode import geocode_stores
 from app.models import ExternalEvent, HeartbeatRun, Store
 
-PACE = StorePoint("HS10136", "FL - Demo - Pace", 30.60, -87.16, "America/Chicago")
-TAMPA = StorePoint("HS10132", "FL - Demo - Tampa", 27.94, -82.48, "America/New_York")
+PACE = StorePoint("HS10001", "FL - Demo - Pace", 30.60, -87.16, "America/Chicago")
+TAMPA = StorePoint("HS10002", "FL - Demo - Tampa", 27.94, -82.48, "America/New_York")
 
 
 def settings(**over):
@@ -114,7 +114,7 @@ def test_fl511_filters_by_distance_and_duration():
     assert d.event_id == "fl511:A1" and d.event_type == "traffic" and d.severity == "major"
     # 1789731600 = 2026-09-18 11:40 UTC -> 06:40 Central (Pace)
     assert d.start_time == datetime(2026, 9, 18, 6, 40) and d.end_time == datetime(2026, 9, 18, 8, 40)
-    assert d.metadata["nearest_store"] == "HS10136" and d.affected_radius_km == 5.0
+    assert d.metadata["nearest_store"] == "HS10001" and d.affected_radius_km == 5.0
 
 
 def test_calendar_holidays_and_cannabis_days():
@@ -329,7 +329,7 @@ def test_fl511_arcgis_keyless_feed():
     assert d.event_id == "fl511-gis:114870" and d.event_type == "traffic" and d.severity == "major"  # crash + all lanes blocked
     # 7:29 Eastern -> 6:29 Central at Pace
     assert d.start_time == datetime(2026, 9, 18, 6, 29, 11) and d.end_time == datetime(2026, 9, 18, 7, 8, 39)
-    assert d.metadata["nearest_store"] == "HS10136" and d.metadata["county"] == "Santa Rosa"
+    assert d.metadata["nearest_store"] == "HS10001" and d.metadata["county"] == "Santa Rosa"
     assert fl511_arcgis.severity_for({"Severity": "minor", "incident_type": "Planned Construction", "description": "Left lane blocked"}) == "minor"
     assert fl511_arcgis.severity_for({"Severity": "minor", "incident_type": "Road Closed", "description": ""}) == "major"
 
@@ -381,7 +381,7 @@ def test_road511_mapping_and_paging():
 
     with mock_client(router) as http:
         drafts, stats = road511.fetch_events(http, "sk_test", [PACE], 5.0, date(2026, 9, 1), date(2026, 9, 30), "https://r511.test/events",
-                                             statuses=("active", "archived"), now=datetime(2026, 9, 18, 14, 0), store_states={"HS10136": "FL"})
+                                             statuses=("active", "archived"), now=datetime(2026, 9, 18, 14, 0), store_states={"HS10001": "FL"})
     assert seen[0][1] == "sk_test" and seen[0][0]["jurisdiction"] == "FL" and seen[0][0]["radius_km"] == "5.0"
     assert stats["requests"] == 3 and stats["kept"] == 2 and stats["gates"] == []
     by = {d.event_id: d for d in drafts}

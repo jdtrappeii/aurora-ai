@@ -192,7 +192,7 @@ FL_BRAND_ALIASES = {
     "gold flora": "Gold Flora", "goldflora": "Gold Flora", "house of platinum": "House of Platinum Cannabis",
     "mint cannabis": "Mint Cannabis", "the mint": "Mint Cannabis", "cannabist": "Cannabist", "columbia care": "Cannabist",
     "green dragon": "Green Dragon", "revolution": "Revolution", "verano": "MÜV", "harvest": "Harvest",
-    "curio": "Curio Wellness", "ethos": "Ethos", "planet 13": "Planet 13",
+    "curio": "Curio Wellness", "ethos": "Ethos",
 }
 
 

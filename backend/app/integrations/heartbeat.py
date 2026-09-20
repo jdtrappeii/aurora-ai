@@ -1,7 +1,7 @@
 """Store heartbeat receiver and outage derivation.
 
 A device at the store (a Raspberry Pi, a smart plug with a webhook, a script on
-the POS machine) calls POST /api/heartbeat?store=HS10136&kind=power every
+the POS machine) calls POST /api/heartbeat?store=HS10001&kind=power every
 minute. `record_ping` extends the current HeartbeatRun or opens a new one when
 the silence exceeded the gap. `heartbeat_events` turns every silence between
 runs into an external event: kind=power -> utility, kind=network ->
