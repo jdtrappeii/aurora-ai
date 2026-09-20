@@ -46,7 +46,8 @@ confirm() {  # confirm "question" -> 0 on y/yes
 # In use by something other than Aurora's own proxy (a re-run must not flag itself).
 port_in_use() {
   local ours
-  ours="$(docker compose -f "$HOME_DIR/docker-compose.yml" --env-file "$HOME_DIR/.env" port proxy 80 2>/dev/null | sed -E 's/.*:([0-9]+)$/\1/')"
+  # Aurora's own proxy publishes this port; ask Docker directly so a half-edited .env cannot confuse the check.
+  ours="$(docker port aurora-proxy 80 2>/dev/null | head -1 | sed -E 's/.*:([0-9]+)$/\1/')"
   [ -n "$ours" ] && [ "$ours" = "$1" ] && return 1
   (command -v ss >/dev/null && ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1$")
 }
@@ -212,7 +213,15 @@ collect() {
   ask $be SMTP_FROM     "From address"
   ask $be REPORT_TO     "Recipients (comma-separated)"
   echo "Dashboard login"
+  echo "  (this is the NAME you sign in with, shown on screen; the password is asked later and hidden)"
+  local prev_user; prev_user="$(getenv $ce AURORA_USER)"
   ask $ce AURORA_USER   "Login user name"
+  if ! [[ "$(getenv $ce AURORA_USER)" =~ ^[A-Za-z0-9._-]{1,32}$ ]]; then
+    warn "That does not look like a user name (letters, digits, . _ - only). Keeping '${prev_user:-aurora}'."
+    warn "If you just typed a password there, treat it as exposed and choose a new one at the password prompt."
+    setenv $ce AURORA_USER "${prev_user:-aurora}"
+    setenv $ce AURORA_PASSWORD_HASH ""
+  fi
   echo "Reachability (never a public interface)"
   local ts; ts="$(command -v tailscale >/dev/null 2>&1 && tailscale ip -4 2>/dev/null | head -1 || true)"
   [ -n "$ts" ] && echo "  Tailscale IP detected: $ts  (enter it below to reach Aurora over the tailnet; blank = 127.0.0.1 + SSH tunnel)"
@@ -224,8 +233,10 @@ collect() {
   case "$(getenv $ce AURORA_BIND)" in
     0.0.0.0|::|"[::]") die "Refusing to bind to all interfaces on this install. Use 127.0.0.1 or the Tailscale IP." ;;
   esac
+  local tries=0
   while port_in_use "$(getenv $ce AURORA_HTTP_PORT)"; do
-    warn "port $(getenv $ce AURORA_HTTP_PORT) is in use"; ask $ce AURORA_HTTP_PORT "Another HTTP port"
+    tries=$((tries + 1)); [ "$tries" -le 3 ] || die "Port $(getenv $ce AURORA_HTTP_PORT) is taken by another program. Free it or set AURORA_HTTP_PORT in $HOME_DIR/.env, then re-run."
+    warn "port $(getenv $ce AURORA_HTTP_PORT) is in use by something other than Aurora"; ask $ce AURORA_HTTP_PORT "Another HTTP port (a number)"
   done
 
   [ -n "$(getenv $be DEFAULT_SCOPE)" ] || setenv $be DEFAULT_SCOPE "state:FL"
