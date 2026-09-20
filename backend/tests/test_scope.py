@@ -88,3 +88,30 @@ def test_stores_route_lists_scopes_and_default(session, engine, monkeypatch):
         d = c.get("/api/dashboard", params={"store": "state:FL", "as_of": "2026-09-07"}).json()
         assert d["store"] == "state:FL" and d["external"]["store"] == "HS1"
     app.dependency_overrides.clear()
+
+
+def test_period_totals_use_feed_store_days_without_product_lines(session):
+    """Store-day totals exist for the whole range; product lines only for part of it.
+    The period total must be the feed's figure for every covered store-day, plus
+    lines only where the feed has no row."""
+    from datetime import date
+    from decimal import Decimal
+    from app.analytics.financial import financial_summary
+    from app.analytics.periods import Period
+    from app.importers.headset import Envelope, import_envelope
+    session.add(Store(code="HS10001", name="Pace", state="FL"))
+    session.commit()
+    stores = {"kind": "stores", "result": {"stores": [{"storeId": 10001, "name": "Pace", "address": {"state": "FL", "postalCode": "32571"}}]}}
+    import_envelope(session, Envelope.from_dict(stores))
+    rows = [{"sold_date": f"2026-09-{d:02d}", "store_name": "Pace", "total_revenue": 100.0, "total_gross_sales": 150.0, "total_units": 10,
+             "total_discounts": 50.0, "total_cost": 40.0, "total_profit": 60.0, "transaction_count": 7} for d in (1, 2, 3)]
+    import_envelope(session, Envelope.from_dict({"kind": "store_days", "result": {"rows": rows}}))
+    # product lines for one day only (and they reconcile to that day's totals)
+    import_envelope(session, Envelope.from_dict({"kind": "products", "store_name": "Pace", "sold_date": "2026-09-03", "result": {"rows": [
+        {"product_name": "A", "sku": "A1", "total_revenue": 100.0, "total_gross_sales": 150.0, "total_units": 10, "total_discounts": 50.0,
+         "total_cost": 40.0, "total_profit": 60.0, "transaction_count": 7}]}}))
+    s = financial_summary(session, Period("w", date(2026, 9, 1), date(2026, 9, 3)), "HS10001")
+    assert s.revenue == Decimal("300.00") and s.gross_profit == Decimal("180.00") and s.transactions == 21 and s.units == 30
+    assert s.discount_rate == Decimal("0.3333")
+    one = financial_summary(session, Period("d", date(2026, 9, 3), date(2026, 9, 3)), "HS10001")
+    assert one.revenue == Decimal("100.00") and one.transactions == 7   # not double counted where both exist
