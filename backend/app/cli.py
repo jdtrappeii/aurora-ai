@@ -150,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     p_login.add_argument("--url", default=None, help="MCP URL (default HEADSET_MCP_URL)")
     p_login.add_argument("--client-id", default=None, help="pre-issued OAuth client id (skips dynamic registration)")
     p_login.add_argument("--client-secret", default=None)
+    p_login.add_argument("--scope", default=None, help="OAuth scopes to request (default: offline_access when offered); '' for none")
     p_login.add_argument("--from-claude-code", default=None, metavar="CREDENTIALS_JSON",
                          help="reuse the token Claude Code obtained for this server (~/.claude/.credentials.json)")
     sub.add_parser("headset-status", help="is the server signed in to Headset, and until when")
@@ -323,7 +324,8 @@ def main(argv: list[str] | None = None) -> int:
             cid = a.client_id or settings.headset_oauth_client_id or None
             csec = a.client_secret or settings.headset_oauth_client_secret or None
             with httpx.Client(timeout=60.0, follow_redirects=True) as http:
-                print(_json(login(http, url, TokenStore(oauth_store_path()), client_id=cid, client_secret=csec)))
+                scopes = None if a.scope is None else [sc for sc in a.scope.split() if sc]
+                print(_json(login(http, url, TokenStore(oauth_store_path()), client_id=cid, client_secret=csec, scopes=scopes)))
         elif a.cmd == "headset-status":
             import httpx
             from app.integrations.headset.client import oauth_store_path

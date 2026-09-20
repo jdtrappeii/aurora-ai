@@ -226,7 +226,7 @@ class TokenStore:
 
 
 def login(http: httpx.Client, mcp_url: str, store: TokenStore, prompt=input, echo=print, client_id: str | None = None,
-          client_secret: str | None = None) -> dict:
+          client_secret: str | None = None, scopes: list[str] | None = None) -> dict:
     """Interactive: discover, register (unless a client id is given), print the
     sign-in link, take the landing address back, exchange, save."""
     disc = discover(http, mcp_url)
@@ -245,7 +245,7 @@ def login(http: httpx.Client, mcp_url: str, store: TokenStore, prompt=input, ech
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(16)
     echo("\nOpen this address in a browser, sign in to Headset, and approve the access:\n")
-    echo("  " + authorize_url(disc, client["client_id"], challenge, state))
+    echo("  " + authorize_url(disc, client["client_id"], challenge, state, scopes))
     echo("\nThe browser will then try to open http://localhost:8765/callback?... and show an error page.")
     echo("That is expected. Copy the whole address from the browser's address bar and paste it here.\n")
     landing = prompt("Landing address: ")
