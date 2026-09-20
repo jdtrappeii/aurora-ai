@@ -56,22 +56,36 @@ class FinancialSummary:
         return asdict(self)
 
 
-def summarize_lines(lines: list[LineRow], feed_tickets: int | None = None) -> dict:
+def summarize_lines(lines: list[LineRow], feed_tickets: int | None = None, feed: "FeedTotals | None" = None) -> dict:
     """Core aggregation used by every breakdown (product, category, promo...).
 
     feed_tickets, when given, replaces the ticket count of the aggregate-feed
-    lines with the feed's own store-day total (see count_tickets)."""
+    lines with the feed's own store-day total (see count_tickets).
+
+    feed, when given, goes further: for every store-day the aggregate feed
+    reported, its totals stand in for that day's feed lines (which may be
+    absent, because product detail is pulled for fewer days than totals, or
+    partial). POS lines and feed lines for uncovered store-days still add."""
     done = completed(lines)
+    if feed is not None and feed.covered:
+        done = [ln for ln in done if not (ln.source == "headset" and (ln.store_code, ln.sold_at.date()) in feed.covered)]
     gross_sales = sum((ln.gross_sales for ln in done), ZERO)
     discount_total = sum((ln.discount_amount for ln in done), ZERO)
     revenue = sum((ln.revenue for ln in done), ZERO)
     cogs = sum((ln.cogs for ln in done), ZERO)
-    gross_profit = revenue - cogs
-    if feed_tickets is None:
+    units = sum(ln.quantity for ln in done)
+    if feed is not None and feed.covered:
+        gross_sales += feed.gross_sales
+        discount_total += feed.discount_total
+        revenue += feed.revenue
+        cogs += feed.cogs
+        units += feed.units
+        transactions = count_tickets(done) + feed.transactions
+    elif feed_tickets is None:
         transactions = count_tickets(done)
     else:
         transactions = count_tickets([ln for ln in done if ln.source == "pos"]) + feed_tickets
-    units = sum(ln.quantity for ln in done)
+    gross_profit = revenue - cogs
     return {
         "gross_sales": money(gross_sales),
         "discount_total": money(discount_total),
@@ -96,6 +110,36 @@ def operating_expenses(session: Session, period: Period, store_code: str | None 
     return money(D(session.execute(stmt).scalar_one()))
 
 
+@dataclass
+class FeedTotals:
+    """What the aggregate feed reported per store-day inside a period."""
+    covered: set
+    gross_sales: Decimal = ZERO
+    discount_total: Decimal = ZERO
+    revenue: Decimal = ZERO
+    cogs: Decimal = ZERO
+    units: int = 0
+    transactions: int = 0
+
+
+def feed_totals(session: Session, period: Period, store_code: str | None = None) -> FeedTotals:
+    stmt = select(DailyStoreSummary, Store.code).join(Store, DailyStoreSummary.store_id == Store.id).where(
+        DailyStoreSummary.sale_date >= period.start, DailyStoreSummary.sale_date <= period.end
+    )
+    if store_code:
+        stmt = stmt.where(store_predicate(store_code))
+    ft = FeedTotals(covered=set())
+    for row, code in session.execute(stmt):
+        ft.covered.add((code, row.sale_date))
+        ft.gross_sales += row.gross_sales
+        ft.discount_total += row.discount_total
+        ft.revenue += row.revenue
+        ft.cogs += row.cogs
+        ft.units += row.units
+        ft.transactions += row.transaction_count
+    return ft
+
+
 def feed_tickets(session: Session, period: Period, store_code: str | None = None) -> int | None:
     """Sum of feed-reported tickets for the period, or None when the feed has no
     store-day rows in it (then the line-level count stands)."""
@@ -108,8 +152,8 @@ def feed_tickets(session: Session, period: Period, store_code: str | None = None
     return int(tickets) if rows else None
 
 
-def _build(period_dict: dict, lines: list[LineRow], opex: Decimal, tickets: int | None = None) -> FinancialSummary:
-    core = summarize_lines(lines, tickets)
+def _build(period_dict: dict, lines: list[LineRow], opex: Decimal, tickets: int | None = None, feed: FeedTotals | None = None) -> FinancialSummary:
+    core = summarize_lines(lines, tickets, feed)
     refunded = [ln for ln in lines if ln.status == "refunded"]
     void_ids = {ln.sale_id for ln in lines if ln.status == "voided"}
     return FinancialSummary(
@@ -128,7 +172,8 @@ def financial_summary(session: Session, period: Period, store_code: str | None =
         period.to_dict(),
         load_lines(session, period, store_code),
         operating_expenses(session, period, store_code),
-        feed_tickets(session, period, store_code),
+        None,
+        feed_totals(session, period, store_code),
     )
 
 
@@ -137,13 +182,14 @@ def financial_summary_multi(session: Session, periods: list[Period], store_code:
     different weeks). Totals add; ratios are derived from the combined totals."""
     lines: list[LineRow] = []
     opex = ZERO
-    tickets: int | None = None
+    feed = FeedTotals(covered=set())
     for p in periods:
         lines.extend(load_lines(session, p, store_code))
         opex += operating_expenses(session, p, store_code)
-        t = feed_tickets(session, p, store_code)
-        if t is not None:
-            tickets = (tickets or 0) + t
+        f = feed_totals(session, p, store_code)
+        feed.covered |= f.covered
+        feed.gross_sales += f.gross_sales; feed.discount_total += f.discount_total; feed.revenue += f.revenue
+        feed.cogs += f.cogs; feed.units += f.units; feed.transactions += f.transactions
     period_dict = {
         "label": "multi",
         "start": min(p.start for p in periods).isoformat(),
@@ -151,4 +197,4 @@ def financial_summary_multi(session: Session, periods: list[Period], store_code:
         "days": sum(p.days for p in periods),
         "periods": [p.to_dict() for p in periods],
     }
-    return _build(period_dict, lines, money(opex), tickets)
+    return _build(period_dict, lines, money(opex), None, feed)
