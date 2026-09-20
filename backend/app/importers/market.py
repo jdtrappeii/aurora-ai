@@ -15,6 +15,7 @@ reported, never guessed.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from decimal import Decimal
@@ -151,8 +152,14 @@ def offer_severity(offer_value: str | None, offer_type: str | None) -> tuple[str
     else minor. With no figure at all, the classified offer type decides: bundles
     and multi-buys are moderate, freebies and the rest minor."""
     text = f"{offer_value or ''} {offer_type or ''}".casefold()
+    kind = (offer_type or "").casefold()
     m = re.search(r"(\d{1,3})\s*%", text)
     pct = Decimal(m.group(1)) if m else None
+    bare = re.fullmatch(r"\s*(\d{1,3}(?:\.\d+)?)\s*", str(offer_value or ""))
+    if pct is None and bare and "percent" in kind:      # the tracker stores "40" + "percent_off"
+        pct = Decimal(bare.group(1))
+    if bare and "dollar" in kind:                         # "10" + "dollar_off"
+        text += f" ${bare.group(1)}"
     if "bogo" in text or "buy one" in text or "b1g1" in text:
         return "major", pct
     if pct is not None:
@@ -170,6 +177,58 @@ def offer_severity(offer_value: str | None, offer_type: str | None) -> tuple[str
     return "minor", None
 
 
+# Florida MMTC brand names as they appear in deal copy, mapped to the operator
+# names the OMMU report uses. Names from the market_weekly table are added at
+# run time, so this only needs the cases where the brand differs from the licensee.
+FL_BRAND_ALIASES = {
+    "muv": "AltMed Florida", "müv": "AltMed Florida", "altmed": "AltMed Florida",
+    "trulieve": "Trulieve", "curaleaf": "Curaleaf", "sunburn": "Sunburn Cannabis", "fluent": "Fluent",
+    "cansortium": "Fluent", "surterra": "Surterra Wellness", "parallel": "Surterra Wellness",
+    "rise": "RISE Dispensaries", "green thumb": "RISE Dispensaries", "ayr": "AYR Cannabis Dispensary", "liberty health": "AYR Cannabis Dispensary",
+    "vidacann": "VidaCann", "the flowery": "The Flowery", "flowery": "The Flowery", "cookies": "Cookies", "jungle boys": "Jungle Boys",
+    "insa": "Insa", "sanctuary": "Sanctuary Cannabis", "growhealthy": "GrowHealthy", "grow healthy": "GrowHealthy",
+    "gold flora": "Gold Flora", "goldflora": "Gold Flora", "house of platinum": "House of Platinum Cannabis",
+    "mint cannabis": "Mint Cannabis", "the mint": "Mint Cannabis", "cannabist": "Cannabist", "columbia care": "Cannabist",
+    "green dragon": "Green Dragon", "revolution": "Revolution", "verano": "MÜV", "harvest": "Harvest",
+    "curio": "Curio Wellness", "ethos": "Ethos", "planet 13": "Planet 13",
+}
+
+
+def _norm_text(s: str) -> str:
+    """casefold, strip accents, collapse to letters/digits/spaces."""
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", " ", s.casefold()).strip()
+
+
+def operator_matcher(known_operators: list[str] | None = None):
+    """Returns f(text) -> operator name or None. Longest alias wins, so
+    'green thumb' beats 'thumb' and 'jungle boys' beats 'boys'."""
+    aliases: dict[str, str] = {_norm_text(a): n for a, n in FL_BRAND_ALIASES.items()}
+    # Names from the market report win over the static table, so deals attribute
+    # to the same operator string the market panel uses.
+    for name in known_operators or []:
+        n = _norm_text(name)
+        if len(n) >= 4:
+            aliases[n] = name
+        # the licensee's first word is usually the brand ("Trulieve, Inc." -> trulieve)
+        first = n.split(" ")[0] if n else ""
+        if len(first) >= 5 and first not in {"green", "florida", "the", "house", "gold", "med"}:
+            aliases[first] = name
+    ordered = sorted(aliases.items(), key=lambda kv: -len(kv[0]))
+    patterns = [(re.compile(r"(?<![a-z0-9])" + re.escape(a) + r"(?![a-z0-9])"), name) for a, name in ordered if a]
+
+    def match(text: str | None) -> str | None:
+        t = _norm_text(text or "")
+        if not t:
+            return None
+        for pat, name in patterns:
+            if pat.search(t):
+                return name
+        return None
+    return match
+
+
 @dataclass
 class DealsReport:
     drafts: list[EventDraft] = field(default_factory=list)
@@ -177,24 +236,43 @@ class DealsReport:
     skipped_unparsed: int = 0
     skipped_no_date: int = 0
     skipped_no_operator: int = 0
+    skipped_blank: int = 0
+    recovered_operator: int = 0
     duplicates: int = 0
+    unattributed_samples: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {"events": len(self.drafts), "skipped_self": self.skipped_self, "skipped_unparsed": self.skipped_unparsed,
-                "skipped_no_date": self.skipped_no_date, "skipped_no_operator": self.skipped_no_operator, "duplicates": self.duplicates}
+                "skipped_no_date": self.skipped_no_date, "skipped_no_operator": self.skipped_no_operator, "skipped_blank": self.skipped_blank,
+                "recovered_operator": self.recovered_operator, "duplicates": self.duplicates, "unattributed_samples": self.unattributed_samples}
 
 
 def deals_to_events(rows: list[dict], centroid: tuple[float, float], self_operator: str | None = None,
-                    default_days: int = 7) -> DealsReport:
+                    default_days: int = 7, known_operators: list[str] | None = None) -> DealsReport:
     rep = DealsReport()
     self_norm = (self_operator or "").casefold()
     seen = set()
+    match_operator = operator_matcher(known_operators)
     for r in rows:
         operator = cell_str(pick(r, DEAL_ALIASES["operator"]))
         when = cell_date(pick(r, DEAL_ALIASES["when"]))
-        if not operator:   # site banners and unattributed images
-            rep.skipped_no_operator += 1
-            continue
+        text_blob = " ".join(str(v) for v in r.values() if v not in (None, ""))
+        if not operator:
+            if when is None and not text_blob.strip():
+                rep.skipped_blank += 1   # an empty formatted row
+                continue
+            # Site scrapes often leave the operator blank while the brand sits in the
+            # scanned text or subject. Recover it from the names we know.
+            operator = match_operator(" ".join(filter(None, [cell_str(pick(r, DEAL_ALIASES["subject"])),
+                                                              cell_str(pick(r, DEAL_ALIASES["hook"])), text_blob[:400]])))
+            if operator:
+                rep.recovered_operator += 1
+            else:
+                rep.skipped_no_operator += 1
+                if len(rep.unattributed_samples) < 5 and when is not None:
+                    snippet = (cell_str(pick(r, DEAL_ALIASES["subject"])) or text_blob)[:90]
+                    rep.unattributed_samples.append(f"{when.isoformat()} · {snippet}")
+                continue
         if self_norm and (self_norm in operator.casefold() or operator.casefold() in self_norm):
             rep.skipped_self += 1
             continue

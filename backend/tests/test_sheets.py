@@ -154,7 +154,9 @@ def test_deals_to_events_and_pressure(session):
     rep = deals_to_events(rows, (28.1, -81.6), "Planet 13 Florida Cannabis for the Planet")
     # d2 has no parsed figure but a type and text: kept as a minor "value" deal. d7 has no
     # operator, d8 nothing at all. The two id-less Sunburn rows are one deal observed twice in a week.
-    assert rep.to_dict() == {"events": 5, "skipped_self": 1, "skipped_unparsed": 1, "skipped_no_date": 1, "skipped_no_operator": 1, "duplicates": 1}
+    d = rep.to_dict()
+    assert {k: d[k] for k in ("events", "skipped_self", "skipped_unparsed", "skipped_no_date", "skipped_no_operator", "duplicates")} == \
+        {"events": 5, "skipped_self": 1, "skipped_unparsed": 1, "skipped_no_date": 1, "skipped_no_operator": 1, "duplicates": 1}
     by = {d.event_id: d for d in rep.drafts}
     assert by["deal:d2"].severity == "minor" and by["deal:d2"].description == "Mint Cannabis: value: MINT (value)"
     assert by["deal:d1"].severity == "major" and by["deal:d1"].confidence == Decimal("0.9")
@@ -374,3 +376,24 @@ def test_init_db_migrates_old_promotions_schema(tmp_path):
     with eng.connect() as c:
         idx = [r[1] for r in c.execute(text("PRAGMA index_list(promotions)"))]
         assert "uq_promotions_name_start" in idx
+
+
+def test_deals_recover_operator_from_text():
+    from app.importers.market import operator_matcher
+    m = operator_matcher(["Trulieve, Inc.", "Curaleaf Florida LLC", "Green Thumb Industries", "AltMed Florida"])
+    assert m("VALID 9.8 curaleaf DISPENSARY Mention FL CANNABIS DEALS") == "Curaleaf Florida LLC"
+    assert m("müv SEPTEMBER 8 - 10 40% OFF FLOWER") == "AltMed Florida"          # accent-insensitive brand alias
+    assert m("RISE Dispensaries weekend deals") == "RISE Dispensaries"
+    assert m("Jungle Boys drop") == "Jungle Boys" and m("FLCANNABIS DEALS.org FREE STICKERS!") is None
+    assert m("Green Thumb 20% off") == "RISE Dispensaries"                        # multi-word alias beats the generic first word
+    rows = read_table(
+        b"deal_id,operator,observed_at_utc,full_deal_text_ocr,offer_type,offer_value,confidence\n"
+        b"x1,,2026-09-09T10:40:00.000Z,VALID 9.8 curaleaf DISPENSARY 40% OFF STOREWIDE,percent_off,40,high\n"
+        b"x2,,2026-09-09T10:40:00.000Z,FLCANNABIS DEALS banner,,,low\n"
+        b",,,,,,\n", "d.csv")
+    rep = deals_to_events(rows, (28.1, -81.6), None, known_operators=["Curaleaf Florida LLC"])
+    d = rep.to_dict()
+    assert (d["events"], d["recovered_operator"], d["skipped_no_operator"], d["skipped_blank"]) == (1, 1, 1, 0)  # read_table drops empty rows
+    assert deals_to_events([{"operator": None, "observed_at_utc": None, "full_deal_text_ocr": ""}], (28.1, -81.6)).skipped_blank == 1
+    assert rep.drafts[0].metadata["operator"] == "Curaleaf Florida LLC" and rep.drafts[0].severity == "major"
+    assert d["unattributed_samples"] == ["2026-09-09 · FLCANNABIS DEALS banner"]

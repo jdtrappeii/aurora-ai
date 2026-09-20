@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 import httpx
 from sqlalchemy.orm import Session
 
+from sqlalchemy import select
+from app.models import MarketWeekly
 from app.importers.csv_importer import ImportResult
 from app.importers.market import deals_to_events, import_market_rows, market_competition_events
 from app.importers.promotions_sheet import import_promotion_rows
@@ -75,7 +77,8 @@ def sheets_sync(session: Session, http: httpx.Client, settings, which: set[str] 
         else:
             try:
                 tab, rows = _google_rows(http, settings.deals_sheet_id, settings.deals_sheet_tab, DEALS_REQUIRED)
-                dr = deals_to_events(rows, centroid, settings.market_self_operator or None)
+                known = [o for (o,) in session.execute(select(MarketWeekly.operator).distinct())]
+                dr = deals_to_events(rows, centroid, settings.market_self_operator or None, known_operators=known)
                 rep.results.append(upsert_events(session, dr.drafts, "deal-intel"))
                 rep.details["deals"] = {"tab": tab, "rows": len(rows), **dr.to_dict()}
                 rep.ran.append("deals")
