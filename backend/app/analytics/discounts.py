@@ -12,6 +12,7 @@ For a period and optional store, one row per discount code:
 The '' code is undiscounted items and is reported separately as `undiscounted`.
 Deltas compare against the previous period of the same length.
 """
+import re
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
@@ -80,6 +81,50 @@ def discount_report(session: Session, period: Period, store_code: str | None = N
     }
 
 
+_KEYWORDS = ("flower", "vape", "vapes", "cart", "carts", "distillate", "rosin", "edible", "edibles", "pre-roll", "preroll", "prerolls",
+             "pre-rolls", "tincture", "tinctures", "tablet", "tablets", "topical", "topicals", "derivative", "storewide", "apparel",
+             "manager", "special", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "monday", "senior", "seniors",
+             "veteran", "veterans", "medizin", "dreamland", "haha", "oni", "leaf", "vine", "nano", "syringe", "syringes", "concentrate")
+
+
+def _tokens(text: str) -> tuple[set[str], set[str]]:
+    """(percent/dollar figures, product keywords) in a deal name or POS code."""
+    t = (text or "").casefold().replace("!", " ")
+    figs = set(re.findall(r"(\d{1,3})\s*%", t)) | {f"${m}" for m in re.findall(r"\$\s*(\d+)", t)}
+    words = set(re.findall(r"[a-z][a-z\-]+", t))
+    return figs, {w for w in words if w in _KEYWORDS}
+
+
+def match_discount_names(promo_name: str, candidates: list[str]) -> list[str]:
+    """POS discount codes whose figure and product words agree with a calendar
+    deal ("35% Off Planet 13 Flower" <-> "DD - Auto - 35% OFF ALL Planet 13 Flower!").
+    Same figure and at least one shared product word; the generic patient
+    programme codes (first-time, veterans...) never match a calendar deal."""
+    figs, kws = _tokens(promo_name)
+    if not figs:
+        return []
+    out = []
+    for c in candidates:
+        cf, ck = _tokens(c)
+        if cf & figs and (ck & kws or (not kws and not ck)):
+            out.append(c)
+    return out
+
+
+def auto_discount_names(session: Session, promo, store_code: str | None = None) -> list[str]:
+    """Codes seen in the feed on the promotion's days that match its wording."""
+    from app.importers.promotions_sheet import active_days
+    days = active_days(promo, promo.start_date, promo.end_date)
+    if not days:
+        return []
+    stmt = select(DiscountDaily.discount_name).where(DiscountDaily.sale_date >= min(days), DiscountDaily.sale_date <= max(days)).distinct()
+    pred = store_predicate(store_code)
+    if pred is not None:
+        stmt = stmt.join(Store, DiscountDaily.store_id == Store.id).where(pred)
+    names = [n for (n,) in session.execute(stmt)]
+    return match_discount_names(promo.name, names)
+
+
 def promotion_feed(session: Session, promo, store_code: str | None = None) -> dict | None:
     """What the aggregate feed (discount_daily) says about one promotion: the
     rows whose discount name is one of the promotion's POS names, on the days
@@ -89,9 +134,14 @@ def promotion_feed(session: Session, promo, store_code: str | None = None) -> di
     from app.importers.promotions_sheet import active_days
     from app.models import Store
 
-    if not promo.discount_names:
+    matched = "sheet"
+    listed = [n.strip() for n in (promo.discount_names or "").split("|") if n.strip()]
+    if not listed:
+        listed = auto_discount_names(session, promo, store_code)
+        matched = "auto"
+    if not listed:
         return None
-    names = {n.strip().casefold() for n in promo.discount_names.split("|") if n.strip()}
+    names = {n.casefold() for n in listed}
     codes = {c for c in (promo.store_codes or "").split("|") if c}
     if store_code and is_state(store_code):
         in_state = {s.code for s in stores_in_scope(session, store_code)}
@@ -140,7 +190,8 @@ def promotion_feed(session: Session, promo, store_code: str | None = None) -> di
         }
 
     return {
-        "discount_names": sorted(names),
+        "discount_names": sorted(listed),
+        "matched": matched,
         "applies_to_store": True,
         "scheduled_days": len(window_days),
         "window": {**{k: (money(v) if isinstance(v, Decimal) else v) for k, v in cur.items()},

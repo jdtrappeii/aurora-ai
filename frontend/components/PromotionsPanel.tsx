@@ -48,9 +48,25 @@ export default function PromotionsPanel({ promos }: { promos: Promotion[] }) {
                 {money(p.discount_total)} · {pct(p.attachment_rate, 0)} of tickets
               </div>
             </div>
+            {p.day_totals && (
+              <div className="stat">
+                <small>Store-day totals · {p.day_totals.window.store_days} store-day{p.day_totals.window.store_days === 1 ? "" : "s"} vs {p.day_totals.baseline_rule}</small>
+                {money(p.day_totals.window.revenue_per_store_day)} <span className="muted">revenue / store-day</span>
+                {p.day_totals.vs_baseline ? (
+                  <div className={(p.day_totals.vs_baseline.gross_profit_pct ?? 0) >= 0 ? "pos" : "neg"}>
+                    revenue {spct(p.day_totals.vs_baseline.revenue_pct)} · gross profit {spct(p.day_totals.vs_baseline.gross_profit_pct)} · discount {spct(p.day_totals.vs_baseline.discount_pct)}
+                  </div>
+                ) : (
+                  <div className="muted">no prior same-weekday totals yet</div>
+                )}
+                <div className="muted">
+                  {money(p.day_totals.window.gross_profit_per_store_day)} gross profit / store-day · {money(p.day_totals.window.discount_per_store_day)} discount / store-day
+                </div>
+              </div>
+            )}
             {feed && (
               <div className="stat">
-                <small>From the POS feed · {feed.window!.days_with_data} of {feed.scheduled_days} days</small>
+                <small>From the POS feed · {feed.window!.days_with_data} of {feed.scheduled_days} days{feed.matched === "auto" ? " · codes matched by wording" : ""}</small>
                 {money(feed.window!.discount_per_day)} <span className="muted">given away / day</span>
                 <div className="muted">
                   {money(feed.window!.revenue_per_day)} item revenue / day · {pct(feed.window!.discount_depth, 0)} depth

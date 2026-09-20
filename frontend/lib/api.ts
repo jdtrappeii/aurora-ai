@@ -93,6 +93,7 @@ export interface Inventory {
 
 export interface PromotionFeed {
   discount_names: string[];
+  matched?: "sheet" | "auto";
   applies_to_store: boolean;
   scheduled_days?: number;
   window?: { discount_total: number; revenue: number; units: number; transaction_count: number; days_with_data: number; discount_depth: number; discount_per_day: number; revenue_per_day: number; tickets_per_day: number };
@@ -107,6 +108,14 @@ export interface Promotion extends Omit<Summary, "period"> {
   audience: string | null;
   source: string;
   feed: PromotionFeed | null;
+  day_totals: {
+    scheduled_days: number; baseline_rule: string; source: string; verdict?: string; explanation?: string;
+    window: { days_with_data: number; store_days: number; revenue: number; gross_profit: number; discount_total: number; transaction_count: number;
+      revenue_per_store_day: number; gross_profit_per_store_day: number; discount_per_store_day: number; tickets_per_store_day: number;
+      discount_rate: number | null; gross_margin: number | null };
+    baseline: { store_days: number; revenue_per_store_day: number; gross_profit_per_store_day: number; discount_per_store_day: number; tickets_per_store_day: number; gross_margin: number | null } | null;
+    vs_baseline?: { revenue_pct: number | null; gross_profit_pct: number | null; discount_pct: number | null; tickets_pct: number | null; gross_margin_delta: number };
+  } | null;
   statewide: {
     days_with_data: number; scheduled_days: number; net_sales: number; gross_sales: number; discount_amount: number;
     net_sales_per_day: number; discount_rate: number | null; promo_roi: number | null; four_week_avg_sales: number | null;

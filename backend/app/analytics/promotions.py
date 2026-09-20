@@ -18,9 +18,83 @@ from app.analytics.financial import summarize_lines
 from app.analytics.lines import LineRow, completed, load_lines
 from app.analytics.money import ZERO, money, pct_change, rate, safe_div
 from app.analytics.periods import Period
-from app.models import PromoDayPerformance, Promotion
+from app.analytics.scope import store_predicate
+from app.models import DailyStoreSummary, PromoDayPerformance, Promotion, Store
 
 BASELINE_DAYS = 28
+SAME_WEEKDAY_WEEKS = 4
+
+
+def day_totals_verdict(session: Session, promo: Promotion, store_code: str | None = None) -> dict | None:
+    """Judge the promotion on the store-by-day totals the aggregate feed always
+    carries: each promo day against the same weekday over the previous four
+    weeks, in the stores it applies to (within the requested scope). Returns None
+    when no totals exist for the promo days."""
+    from app.importers.promotions_sheet import active_days
+    days = active_days(promo, promo.start_date, promo.end_date)
+    if not days:
+        return None
+    codes = {c for c in (promo.store_codes or "").split("|") if c}
+    baseline_days = {d - timedelta(weeks=w) for d in days for w in range(1, SAME_WEEKDAY_WEEKS + 1)}
+    lo, hi = min(baseline_days), max(days)
+    stmt = select(DailyStoreSummary, Store.code).join(Store, DailyStoreSummary.store_id == Store.id).where(
+        DailyStoreSummary.sale_date >= lo, DailyStoreSummary.sale_date <= hi)
+    pred = store_predicate(store_code)
+    if pred is not None:
+        stmt = stmt.where(pred)
+    if codes:
+        stmt = stmt.where(Store.code.in_(sorted(codes)))
+    promo_rows, base_rows = [], []
+    dayset = set(days)
+    for row, code in session.execute(stmt):
+        if row.sale_date in dayset:
+            promo_rows.append(row)
+        elif row.sale_date in baseline_days:
+            base_rows.append(row)
+    if not promo_rows:
+        return None
+
+    def agg(rows):
+        n_days = len({r.sale_date for r in rows})
+        tot = {"revenue": sum(r.revenue for r in rows), "gross_profit": sum(r.gross_profit for r in rows),
+               "discount_total": sum(r.discount_total for r in rows), "gross_sales": sum(r.gross_sales for r in rows),
+               "transaction_count": sum(r.transaction_count for r in rows)}
+        # per store-day, so a state view and a store view are comparable
+        store_days = len({(r.store_id, r.sale_date) for r in rows})
+        return {
+            "days_with_data": n_days, "store_days": store_days,
+            "revenue": money(tot["revenue"]), "gross_profit": money(tot["gross_profit"]), "discount_total": money(tot["discount_total"]),
+            "transaction_count": tot["transaction_count"],
+            "revenue_per_store_day": money(safe_div(tot["revenue"], store_days)),
+            "gross_profit_per_store_day": money(safe_div(tot["gross_profit"], store_days)),
+            "discount_per_store_day": money(safe_div(tot["discount_total"], store_days)),
+            "tickets_per_store_day": rate(safe_div(tot["transaction_count"], store_days)),
+            "discount_rate": rate(safe_div(tot["discount_total"], tot["gross_sales"])) if tot["gross_sales"] else None,
+            "gross_margin": rate(safe_div(tot["gross_profit"], tot["revenue"])) if tot["revenue"] else None,
+        }
+    promo_agg = agg(promo_rows)
+    base_agg = agg(base_rows) if base_rows else None
+    out = {"scheduled_days": len(days), "window": promo_agg, "baseline": base_agg,
+           "baseline_rule": f"same weekday, previous {SAME_WEEKDAY_WEEKS} weeks", "source": "store-day totals (Headset)"}
+    if base_agg:
+        out["vs_baseline"] = {
+            "revenue_pct": pct_change(promo_agg["revenue_per_store_day"], base_agg["revenue_per_store_day"]),
+            "gross_profit_pct": pct_change(promo_agg["gross_profit_per_store_day"], base_agg["gross_profit_per_store_day"]),
+            "discount_pct": pct_change(promo_agg["discount_per_store_day"], base_agg["discount_per_store_day"]),
+            "tickets_pct": pct_change(promo_agg["tickets_per_store_day"], base_agg["tickets_per_store_day"]),
+            "gross_margin_delta": rate((promo_agg["gross_margin"] or ZERO) - (base_agg["gross_margin"] or ZERO)),
+        }
+        gp_up = promo_agg["gross_profit_per_store_day"] > base_agg["gross_profit_per_store_day"]
+        rev_up = promo_agg["revenue_per_store_day"] > base_agg["revenue_per_store_day"]
+        if gp_up:
+            out["verdict"], out["explanation"] = "profitable", "Gross profit per store-day beat the same weekdays over the prior four weeks."
+        elif rev_up:
+            out["verdict"], out["explanation"] = "revenue_up_profit_down", "Revenue per store-day rose but gross profit fell: the discount cost more than the extra volume earned."
+        else:
+            out["verdict"], out["explanation"] = "unprofitable", "Revenue and gross profit per store-day both fell versus the same weekdays over the prior four weeks."
+    else:
+        out["verdict"], out["explanation"] = "no_baseline", "No store-day totals for the same weekdays in the prior four weeks."
+    return out
 
 
 def statewide_day_totals(session: Session, promo: Promotion) -> dict | None:
@@ -112,6 +186,10 @@ def promotion_results(session: Session, store_code: str | None = None, promotion
         base_daily = _per_day(base_summary, base_period.days) if base_summary else None
 
         label, explanation = verdict(promo_daily, base_daily)
+        day_totals = day_totals_verdict(session, promo, store_code)
+        if label == "no_baseline" and day_totals and day_totals.get("verdict") not in (None, "no_baseline"):
+            # no product lines to judge on, but the feed's store-day totals can
+            label, explanation = day_totals["verdict"], day_totals["explanation"] + " (store-day totals)"
         results.append(
             {
                 "promotion": promo.name,
@@ -128,6 +206,7 @@ def promotion_results(session: Session, store_code: str | None = None, promotion
                 "source": promo.source,
                 "feed": promotion_feed(session, promo, store_code),
                 "statewide": statewide_day_totals(session, promo),
+                "day_totals": day_totals,
                 **promo_summary,
                 **promo_daily,
                 "attachment_rate": rate(safe_div(len(promo_tickets), len(all_tickets))),

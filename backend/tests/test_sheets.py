@@ -468,3 +468,58 @@ def test_workbook_day_totals_are_gated_and_feed_the_statewide_block(session):
     assert sw["net_sales"] == Decimal("57736.53") and sw["discount_rate"] == Decimal("0.5394") and sw["days_with_data"] == 1
     assert sw["vs_four_week_pct"] == pct_change(Decimal("57736.53"), Decimal("79674"))
     assert by["Manager's Special"]["statewide"]["promo_roi"] == Decimal("1.1327")
+
+
+def test_discount_codes_match_calendar_deals_automatically(session):
+    from app.analytics.discounts import match_discount_names
+    codes = ["DD - Auto - Try it Tuesday: 60% OFF ALL 1G Distillate Vapes!", "DD - Auto - 35% OFF ALL Planet 13 Flower!",
+             "DD - Auto - 40% OFF ALL Planet 13 Derivative Products!", "CG - Auto - 40% Veterans & First Responders",
+             "CG - Auto - First Time Patient", "DD - Auto - Manager's Special Menu: 60% Off"]
+    assert match_discount_names("35% Off Planet 13 Flower - all sizes & all tiers", codes) == ["DD - Auto - 35% OFF ALL Planet 13 Flower!"]
+    assert match_discount_names("40% Off Planet 13 Derivative Products Storewide", codes) == ["DD - Auto - 40% OFF ALL Planet 13 Derivative Products!"]
+    assert match_discount_names("Try it Tuesday: 60% OFF ALL 1G Distillate Vapes", codes) == ["DD - Auto - Try it Tuesday: 60% OFF ALL 1G Distillate Vapes!"]
+    assert match_discount_names("Manager's Special Menu: 60% Off Select Items", codes) == ["DD - Auto - Manager's Special Menu: 60% Off"]
+    assert match_discount_names("Door Buster: free jar with $50 purchase", codes) == []      # no code carries that figure
+    assert match_discount_names("40% Off Storewide", codes) == []                           # veterans code shares the figure, not the product
+
+    # end to end: a promotion with no listed codes picks them up from the feed on its days
+    session.add(Store(code="HS10136", name="FL - Planet 13 - Pace", state="FL"))
+    session.commit()
+    pace = session.execute(select(Store)).scalar_one()
+    session.add(DiscountDaily(store_id=pace.id, sale_date=date(2026, 9, 15), discount_name="DD - Auto - 35% OFF ALL Planet 13 Flower!",
+                              discount_total=Decimal("715.75"), revenue=Decimal("1277.40"), units=48, transaction_count=33))
+    session.add(DiscountDaily(store_id=pace.id, sale_date=date(2026, 9, 15), discount_name="CG - Auto - First Time Patient",
+                              discount_total=Decimal("337"), revenue=Decimal("337"), units=25, transaction_count=8))
+    import_promotion_rows(session, [{"promo": "35% Off Planet 13 Flower - all sizes & all tiers", "start_date": "2026-09-15"}])
+    promo = session.execute(select(Promotion)).scalar_one()
+    feed = promotion_feed(session, promo, "HS10136")
+    assert feed["matched"] == "auto" and feed["discount_names"] == ["DD - Auto - 35% OFF ALL Planet 13 Flower!"]
+    assert feed["window"]["discount_total"] == Decimal("715.75") and feed["window"]["transaction_count"] == 33
+
+
+def test_store_day_totals_verdict_uses_same_weekday_baseline(session):
+    from app.models import DailyStoreSummary
+    from app.analytics.promotions import promotion_results
+    session.add_all([Store(code="HS10136", name="FL - Planet 13 - Pace", state="FL"), Store(code="HS10132", name="FL - Planet 13 - Tampa Kennedy", state="FL")])
+    session.commit()
+    stores = {s.code: s for s in session.execute(select(Store)).scalars()}
+    def day(code, d, rev, gp, disc, tix):
+        session.add(DailyStoreSummary(store_id=stores[code].id, sale_date=d, revenue=Decimal(rev), gross_profit=Decimal(gp),
+                                      discount_total=Decimal(disc), gross_sales=Decimal(rev) + Decimal(disc), cogs=Decimal(rev) - Decimal(gp), transaction_count=tix))
+    # promo Tuesday Sep 15 at both stores; prior Tuesdays Sep 1 and Sep 8 as baseline; a Monday that must be ignored
+    day("HS10136", date(2026, 9, 15), "7647.50", "4454.74", "7060.50", 165)
+    day("HS10132", date(2026, 9, 15), "9000", "5000", "8000", 200)
+    for d in (date(2026, 9, 1), date(2026, 9, 8)):
+        day("HS10136", d, "7156.32", "3163.10", "7153.68", 159)
+        day("HS10132", d, "8000", "4000", "9000", 180)
+    day("HS10136", date(2026, 9, 14), "99999", "99999", "0", 999)
+    import_promotion_rows(session, [{"promo": "35% Off Planet 13 Flower", "start_date": "2026-09-15"}])
+    pace = promotion_results(session, "HS10136")[0]
+    dt = pace["day_totals"]
+    assert dt["window"]["revenue_per_store_day"] == Decimal("7647.50") and dt["baseline"]["revenue_per_store_day"] == Decimal("7156.32")
+    assert dt["baseline"]["store_days"] == 2 and dt["vs_baseline"]["gross_profit_pct"] == Decimal("0.4083")
+    assert dt["verdict"] == "profitable" and pace["verdict"] == "profitable" and "store-day totals" in pace["explanation"]
+    fl = promotion_results(session, "state:FL")[0]["day_totals"]
+    assert fl["window"]["store_days"] == 2 and fl["window"]["revenue"] == Decimal("16647.50")
+    assert fl["baseline"]["store_days"] == 4 and fl["baseline"]["revenue_per_store_day"] == Decimal("7578.16")
+    assert promotion_results(session, "HS10132")[0]["day_totals"]["vs_baseline"]["revenue_pct"] == Decimal("0.1250")
