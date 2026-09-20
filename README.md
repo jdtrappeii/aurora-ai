@@ -354,7 +354,7 @@ What Aurora needs from outside the repository, in the order it pays off:
 
 | # | Item | Where it goes | Without it |
 |---|---|---|---|
-| 1 | Headset MCP endpoint (`https://mcp.headset.io`) and one browser sign-in on the server (`headset-login`), or a static token | `HEADSET_MCP_URL`, then `AURORA_HEADSET=1 bash deploy/install.sh` | no nightly sales; replay recorded pulls with `headset-import-dir` |
+| 1 | Headset MCP endpoint (`https://mcp.headset.io`) and a sign-in: a static token, or Claude Code's daily sign-in copied in by `deploy/headset-renew.sh` | `HEADSET_MCP_URL`, then `AURORA_HEADSET=1 bash deploy/install.sh` | no nightly sales; replay recorded pulls with `headset-import-dir` |
 | 2 | `DEFAULT_SCOPE=state:FL` and a Headset store filter of `FL -` on the first backfill | `backend/.env` | the state view blends other states |
 | 3 | Google Sheets shared "anyone with the link", SharePoint link "anyone with the link" | `MARKET_SHEET_ID`, `DEALS_SHEET_ID`, `PROMOTIONS_URL` | no market read, no competitor pressure, promotions by CSV only |
 | 4 | A POS discount name column in the promotions workbook | the workbook | promotions import but cannot be measured against the feed |
@@ -374,24 +374,39 @@ plus a copy of `/data/headset` is a full recovery set.
 
 ## Signing the server in to Headset
 
-Headset's MCP server uses OAuth. Its sign-in server refuses self-registration
-but accepts a client identified by a **published metadata document**
-(`client_id_metadata_document_supported`), and issues refresh tokens for the
-`offline_access` scope. Aurora ships that document at `docs/oauth/client.json`.
-Publish it from your fork with GitHub Pages (Settings, Pages, deploy from the
-branch you run, folder `/docs`), so it is reachable at
-`https://<owner>.github.io/<repo>/oauth/client.json`; the installer sets
-`HEADSET_OAUTH_CLIENT_ID` to that address. Then:
+Headset's MCP server uses OAuth. Its sign-in server (Auth0) refuses
+self-registration and, although it advertises client-metadata documents, it
+only honours documents it has allow-listed: a document you publish yourself
+(Aurora ships one at `docs/oauth/client.json`) is answered with
+`invalid_request: Unknown client`. Two ways in work today:
 
-```bash
-AURORA_HEADSET=1 bash deploy/install.sh   # prints a sign-in link; paste back the address the browser lands on
-docker compose run --rm api python -m app.cli headset-status
-```
+1. **A static token** in `HEADSET_MCP_TOKEN`, if Headset issues you one.
+2. **Reuse Claude Code's sign-in.** Anthropic's client document is on
+   Headset's list, so Claude Code can sign in from the server. Install it,
+   add the server, and authenticate once:
 
-Tokens live in `/data/headset/oauth.json` (0600) on the data volume and refresh
-on their own. To reuse a token Claude Code already obtained on the same box:
-`headset-login --from-claude-code ~/.claude/.credentials.json` (that token has
-no refresh token; it lasts about a day).
+   ```bash
+   claude mcp add --transport http --scope user headset https://mcp.headset.io
+   claude          # then: /mcp  ->  headset  ->  Authenticate (opens or prints a sign-in link)
+   bash deploy/headset-renew.sh --sync
+   ```
+
+   `deploy/headset-renew.sh` copies the token Claude Code obtained into
+   Aurora's store (`/data/headset/oauth.json`, 0600) when it is newer than the
+   one Aurora holds, prints how long it is good for, and with `--sync` pulls
+   the trailing days. The token lasts about a day and carries no refresh
+   token, so the browser step in Claude Code repeats daily; the script is safe
+   to run from cron every hour so the import happens the moment you re-sign:
+
+   ```
+   0 * * * *  bash $HOME/aurora/deploy/headset-renew.sh --quiet --sync >> $HOME/aurora/renew.log 2>&1
+   ```
+
+`headset-status` reports whether the server is signed in and for how long. If
+Headset ever allow-lists your fork's document (`https://<owner>.github.io/
+<repo>/oauth/client.json`, published with GitHub Pages from `/docs`), set
+`HEADSET_OAUTH_CLIENT_ID` to it and `AURORA_HEADSET=1 bash deploy/install.sh`
+signs the server in under its own name with a refreshing token.
 
 ## Deploy on a headless server
 
