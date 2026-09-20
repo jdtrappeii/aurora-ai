@@ -93,18 +93,27 @@ def sheets_sync(session: Session, http: httpx.Client, settings, which: set[str] 
                 data, name = fetch(http, settings.promotions_url, settings.promotions_sheet or None)
                 if data[:2] == b"PK":
                     tabs = workbook_tabs(data)
-                    tab, rows = None, []
+                    chosen: list[tuple[str, list[dict]]] = []
                     if settings.promotions_sheet:
-                        tab, rows = pick_tab(tabs, (), settings.promotions_sheet)
+                        # one tab, or a comma-separated list of tabs
+                        for want in [t.strip() for t in settings.promotions_sheet.split(",") if t.strip()]:
+                            chosen.append(pick_tab(tabs, (), want))
                     else:
-                        for req in PROMO_REQUIRED_ANY:
-                            try:
-                                tab, rows = pick_tab(tabs, req)
-                                break
-                            except ProviderError:
-                                continue
-                        if tab is None:
-                            tab, rows = next(iter(tabs.items()))
+                        # Every "Promo Performance ..." tab: the calendar is kept one tab per year.
+                        chosen = [(n, r) for n, r in tabs.items()
+                                  if "promo performance" in n.casefold() and "filtered" not in n.casefold() and r and "promo" in r[0]]
+                        if not chosen:
+                            for req in PROMO_REQUIRED_ANY:
+                                try:
+                                    chosen = [pick_tab(tabs, req)]
+                                    break
+                                except ProviderError:
+                                    continue
+                        if not chosen:
+                            chosen = [next(iter(tabs.items()))]
+                    # merged into one import so the stale-row sweep sees every tab
+                    tab = ", ".join(n for n, _ in chosen)
+                    rows = [row for _, r in chosen for row in r]
                 else:
                     tab, rows = name, read_table(data, name)
                 r = import_promotion_rows(session, rows, settings.promotions_column_map or None, source="sheet")

@@ -397,3 +397,38 @@ def test_deals_recover_operator_from_text():
     assert deals_to_events([{"operator": None, "observed_at_utc": None, "full_deal_text_ocr": ""}], (28.1, -81.6)).skipped_blank == 1
     assert rep.drafts[0].metadata["operator"] == "Curaleaf Florida LLC" and rep.drafts[0].severity == "major"
     assert d["unattributed_samples"] == ["2026-09-09 · FLCANNABIS DEALS banner"]
+
+
+def test_promotion_year_fixed_from_weekday_column(session):
+    from app.importers.promotions_sheet import fix_year_by_weekday
+    assert fix_year_by_weekday(date(2025, 1, 1), "Thursday") == date(2026, 1, 1)   # Jan 1 2026 is a Thursday
+    assert fix_year_by_weekday(date(2026, 1, 1), "Thursday") == date(2026, 1, 1)
+    assert fix_year_by_weekday(date(2026, 1, 1), None) == date(2026, 1, 1)
+    assert fix_year_by_weekday(date(2026, 1, 1), "Monday") == date(2026, 1, 1)      # neither neighbour fits: leave it
+    rows = [
+        {"january_daily_promos": "Thursday", "start_date": "2025-01-01", "promo": "55% Off Edibles", "notes": "NYD"},
+        {"january_daily_promos": "Friday ", "start_date": "2025-01-02", "promo": "42% Off Storewide", "notes": None},
+    ]
+    r = import_promotion_rows(session, rows)
+    assert r.inserted == 2 and any("date year corrected" in e for e in r.errors)
+    assert sorted(p.start_date for p in session.execute(select(Promotion)).scalars()) == [date(2026, 1, 1), date(2026, 1, 2)]
+
+
+def test_sync_reads_every_promo_performance_tab(session):
+    grid = lambda rows: [["Start Date", "Promo", "Notes"], *rows]
+    wb = _workbook({
+        "Promo Performance 2025": grid([[date(2025, 7, 1), "50% Flower", ""]]),
+        "Promo Performance 2026": grid([[date(2026, 1, 1), "55% Off Edibles; 42% Off Storewide", "NYD"]]),
+        "Filtered Promo Performance": grid([[date(2026, 1, 1), "should not import twice", ""]]),
+        "Promo Suggestions - March": grid([[date(2026, 3, 1), "not a performance tab", ""]]),
+    })
+
+    def router(req):
+        return 200, wb, {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+
+    cfg = settings(promotions_url="https://netorg-my.sharepoint.com/:x:/g/personal/x/abc?e=1")
+    with mock(router) as http:
+        rep = sheets_sync(session, http, cfg, which=("promotions",))
+    assert rep.details["promotions"]["tab"] == "Promo Performance 2025, Promo Performance 2026"
+    names = sorted(p.name for p in session.execute(select(Promotion)).scalars())
+    assert names == ["42% Off Storewide", "50% Flower", "55% Off Edibles"]

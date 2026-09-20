@@ -34,7 +34,7 @@ from app.models import Promotion, Store
 ALIASES = {
     "name": ("name", "promotion", "promo", "promo_name", "promotion_name", "deal", "deal_name", "offer", "title", "promo_type", "campaign"),
     "start": ("start", "start_date", "starts", "begin", "begins", "from", "send_date", "date"),
-    "end": ("end", "end_date", "ends", "through", "thru", "to", "expires", "until"),
+    "end": ("end", "end_date", "ends", "through", "thru", "to", "expires", "until", "stop_date", "stop"),
     "type": ("type", "discount_type", "kind"),
     "value": ("value", "discount", "discount_value", "amount", "percent", "pct_off", "off", "prices", "price"),
     "weekdays": ("weekdays", "weekday", "days", "day", "day_of_week", "dow", "recurrence"),
@@ -46,6 +46,35 @@ ALIASES = {
     "notes": ("notes", "note", "comments", "description", "status"),
 }
 WEEKDAY_NAMES = {"mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "sun": 7}
+
+
+_DAYNAME_HEADER = re.compile(r"(_daily_promos|^day$|^day_name$|^weekday_name$|^dow_name$)")
+
+
+def day_name_of(row: dict) -> str | None:
+    """A column that names the weekday of the row's date ("Thursday"), used only to
+    catch a mistyped year. Promo calendars label it '<Month> Daily Promos'."""
+    for h, v in row.items():
+        if _DAYNAME_HEADER.search(h) and isinstance(v, str) and v.strip()[:3].casefold() in WEEKDAY_NAMES:
+            return v.strip()
+    return None
+
+
+def fix_year_by_weekday(d: date, day_name: str | None) -> date:
+    """2025-01-01 labelled 'Thursday' is really 2026-01-01: try the years either side."""
+    if not day_name:
+        return d
+    want = WEEKDAY_NAMES[day_name[:3].casefold()]
+    if d.isoweekday() == want:
+        return d
+    for delta in (1, -1):
+        try:
+            cand = d.replace(year=d.year + delta)
+        except ValueError:   # Feb 29
+            continue
+        if cand.isoweekday() == want:
+            return cand
+    return d
 
 
 def pick(row: dict, key: str, column_map: dict[str, str] | None = None):
@@ -149,6 +178,7 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
     for p in existing.values():
         by_name.setdefault(p.name, []).append(p)
     touched: set[Promotion] = set()   # rows written by this import; only these merge
+    year_fixes = 0
     for i, r in enumerate(rows, start=2):
         cell_name = cell_str(pick(r, "name", column_map))
         start = cell_date(pick(r, "start", column_map))
@@ -161,6 +191,12 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
             res.skipped += 1
             continue
         end = cell_date(pick(r, "end", column_map))
+        fixed = fix_year_by_weekday(start, day_name_of(r))
+        if fixed != start:
+            year_fixes += 1
+            if end == start or end is None:
+                end = fixed if end is not None else None
+            start = fixed
         notes = cell_str(pick(r, "notes", column_map))
         weekdays = parse_weekdays(pick(r, "weekdays", column_map))
         if end is None:
@@ -227,6 +263,8 @@ def import_promotion_rows(session: Session, rows: list[dict], column_map: dict[s
     # The sheet is the source of truth for its own rows: anything it no longer
     # lists (a deleted row, or a deal that was re-split) goes away. Manual and
     # CSV promotions are untouched.
+    if year_fixes:
+        res.errors.append(f"{year_fixes} row(s): date year corrected to match the weekday column")
     if touched:
         for promo in list(existing.values()):
             if promo.source == source and promo not in touched:
