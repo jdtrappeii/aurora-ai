@@ -102,7 +102,8 @@ def sync_all(session, a, http=None) -> int:
                                    detail_days=detail, parallel=a.parallel, source_factory=client_from_settings)
                 _print_results(rep.results)
                 d = rep.to_dict()
-                return {k: d[k] for k in ("stores", "calls", "warnings", "reconciliation_missing", "reconciled_days")}
+                return {k: d[k] for k in ("stores", "calls", "replayed_from_recordings", "warnings", "reconciliation_mismatches",
+                                          "reconciliation_missing_count", "reconciliation_missing_sample", "reconciled_days")}
             step("headset", headset)
         else:
             summary["steps"]["headset"] = "skipped: HEADSET_MCP_URL not set (replay recorded pulls with headset-import-dir)"

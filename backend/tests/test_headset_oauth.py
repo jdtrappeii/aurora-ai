@@ -165,3 +165,24 @@ def test_metadata_document_client_and_offline_access(tmp_path):
         login(http, MCP, TokenStore(tmp_path / "x.json"), prompt=lambda _: "c", echo=lambda _: None)
     st = login(http, MCP, TokenStore(tmp_path / "o.json"), prompt=lambda _: "http://localhost:8765/callback?code=the-code", echo=lambda _: None, client_id=cimd)
     assert st["logged_in"] and st["has_refresh_token"] and 86000 < st["expires_in_s"] <= 86400
+
+
+def test_mcp_client_retries_timeouts_and_busy_responses(monkeypatch):
+    import app.integrations.headset.client as c
+    monkeypatch.setattr(c.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        body = json.loads(req.content)
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("slow", request=req)
+        if calls["n"] == 2:
+            return httpx.Response(503, headers={"Retry-After": "1"})
+        if "id" not in body:
+            return httpx.Response(202)
+        result = {"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "fake"}} if body["method"] == "initialize" \
+            else {"content": [{"type": "text", "text": json.dumps({"stores": []})}]}
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
+    client = c.McpHeadsetClient("https://mcp.example.test/mcp", "t", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert client.get_stores() == {"stores": []} and calls["n"] >= 3
