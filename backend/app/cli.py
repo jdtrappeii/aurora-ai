@@ -306,14 +306,21 @@ def main(argv: list[str] | None = None) -> int:
             url = a.url or settings.headset_mcp_url
             if not url:
                 raise SystemExit("set HEADSET_MCP_URL (e.g. https://mcp.headset.io) or pass --url")
+            cid = a.client_id or settings.headset_oauth_client_id or None
+            csec = a.client_secret or settings.headset_oauth_client_secret or None
             with httpx.Client(timeout=60.0, follow_redirects=True) as http:
-                print(_json(login(http, url, TokenStore(oauth_store_path()), client_id=a.client_id, client_secret=a.client_secret)))
+                print(_json(login(http, url, TokenStore(oauth_store_path()), client_id=cid, client_secret=csec)))
         elif a.cmd == "headset-status":
+            import httpx
             from app.integrations.headset.client import oauth_store_path
-            from app.integrations.headset.oauth import TokenStore
+            from app.integrations.headset.oauth import TokenStore, describe
             st = TokenStore(oauth_store_path()).status()
             st["static_token"] = bool(settings.headset_mcp_token)
             st["mcp_url"] = settings.headset_mcp_url
+            st["oauth_client_id_configured"] = bool(settings.headset_oauth_client_id)
+            if settings.headset_mcp_url and not st["logged_in"] and not st["static_token"]:
+                with httpx.Client(timeout=30.0, follow_redirects=True) as http:
+                    st["provider"] = describe(http, settings.headset_mcp_url)
             print(_json(st))
         elif a.cmd == "headset-sync":
             from app.integrations.headset.client import client_from_settings

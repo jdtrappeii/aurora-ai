@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     # Leave blank to use recorded JSON envelopes (`headset-import-dir`) instead.
     headset_mcp_url: str = ""
     headset_mcp_token: str = ""
+    headset_oauth_client_id: str = ""      # OAuth client issued by the MCP provider when self-registration is off
+    headset_oauth_client_secret: str = ""  # only if they issue a confidential client
     # Where `headset-sync --record` writes the raw pulls. Git-ignored: it is your data.
     headset_data_dir: str = "./data/headset"
 

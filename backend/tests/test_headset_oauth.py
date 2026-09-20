@@ -94,3 +94,26 @@ def test_discovery_falls_back_to_host_and_reports_clearly():
         code_from_landing("http://localhost:8765/callback?code=abc&state=other", "s")
     with pytest.raises(OAuthError, match="no code"):
         code_from_landing("http://localhost:8765/callback?error=access_denied")
+
+
+def test_issued_client_id_skips_registration_and_status_describes_provider(tmp_path):
+    from app.integrations.headset.oauth import describe
+    state = {"access": None, "refresh": "rt-1", "registered": 0, "refreshed": 0, "calls": []}
+    http = fake_server(state)
+
+    # a provider that refuses self-registration is described, with the ask spelled out
+    def refusing(req):
+        if req.url.path == "/register":
+            return httpx.Response(400, json={"statusCode": 400, "error": "Bad Request", "message": "dynamic client registration is disabled"})
+        return http._transport.handler(req)
+    rhttp = httpx.Client(transport=httpx.MockTransport(refusing))
+    d = describe(rhttp, MCP)
+    assert d["issuer"] == "https://auth.example.test" and d["scopes_supported"] == ["retailer:read"] and d["self_registration"].startswith("refused: HTTP 400")
+    with pytest.raises(OAuthError, match="issue an OAuth client"):
+        login(rhttp, MCP, TokenStore(tmp_path / "o.json"), prompt=lambda _: "x", echo=lambda _: None)
+
+    # with an issued client id the registration endpoint is never called
+    store = TokenStore(tmp_path / "oauth.json")
+    st = login(rhttp, MCP, store, prompt=lambda _: "http://localhost:8765/callback?code=the-code", echo=lambda _: None, client_id="cid-1")
+    assert st["logged_in"] and state["registered"] == 0
+    assert json.loads((tmp_path / "oauth.json").read_text())["client"] == {"client_id": "cid-1", "client_secret": None}

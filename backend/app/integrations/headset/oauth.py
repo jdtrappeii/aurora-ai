@@ -32,6 +32,10 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 import httpx
 
 CLIENT_NAME = "Aurora AI"
+NEEDS_CLIENT_ID = ("The provider does not allow self-registration. Ask them to issue an OAuth client for this server "
+                   f"(client name '{CLIENT_NAME}', redirect URI http://localhost:8765/callback, grant types authorization_code and "
+                   "refresh_token, PKCE public client or a confidential client with a secret), then set HEADSET_OAUTH_CLIENT_ID "
+                   "(and HEADSET_OAUTH_CLIENT_SECRET if given) and run headset-login again.")
 REDIRECT_URI = "http://localhost:8765/callback"   # never listened on; the operator pastes the landing address
 REFRESH_MARGIN_S = 120
 
@@ -113,12 +117,13 @@ def discover(http: httpx.Client, mcp_url: str) -> Discovery:
 def register_client(http: httpx.Client, disc: Discovery) -> dict:
     """RFC 7591 dynamic registration: a public client using PKCE."""
     if not disc.registration_endpoint:
-        raise OAuthError("the authorization server does not offer dynamic client registration; set HEADSET_OAUTH_CLIENT_ID")
+        raise OAuthError(NEEDS_CLIENT_ID)
     body = {"client_name": CLIENT_NAME, "redirect_uris": [REDIRECT_URI], "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"], "token_endpoint_auth_method": "none"}
     r = http.post(disc.registration_endpoint, json=body, headers={"Accept": "application/json"})
     if r.status_code not in (200, 201):
-        raise OAuthError(f"client registration failed: HTTP {r.status_code} {r.text[:300]}")
+        hint = NEEDS_CLIENT_ID if "registration" in r.text.casefold() or r.status_code in (400, 401, 403) else ""
+        raise OAuthError(f"client registration failed: HTTP {r.status_code} {r.text[:300]}\n{hint}")
     data = r.json()
     if not data.get("client_id"):
         raise OAuthError("client registration returned no client_id")
@@ -234,6 +239,28 @@ def login(http: httpx.Client, mcp_url: str, store: TokenStore, prompt=input, ech
     tok = exchange(http, disc, client, code, verifier)
     store.save({"mcp_url": mcp_url, "discovery": disc.__dict__, "client": client, "token": tok})
     return store.status()
+
+
+def describe(http: httpx.Client, mcp_url: str) -> dict:
+    """What the provider's authorization server offers: paste-able into a request for a client id."""
+    try:
+        d = discover(http, mcp_url)
+    except OAuthError as e:
+        return {"mcp_url": mcp_url, "error": str(e)}
+    out = {"mcp_url": mcp_url, "resource": d.resource, "issuer": d.issuer, "authorization_endpoint": d.authorization_endpoint,
+           "token_endpoint": d.token_endpoint, "registration_endpoint": d.registration_endpoint, "scopes_supported": d.scopes,
+           "redirect_uri_aurora_uses": REDIRECT_URI, "client_name_aurora_uses": CLIENT_NAME}
+    if d.registration_endpoint:
+        try:
+            r = http.post(d.registration_endpoint, json={"client_name": CLIENT_NAME, "redirect_uris": [REDIRECT_URI],
+                                                       "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
+                                                       "token_endpoint_auth_method": "none"}, headers={"Accept": "application/json"})
+            out["self_registration"] = "allowed" if r.status_code in (200, 201) else f"refused: HTTP {r.status_code} {r.text[:160]}"
+        except httpx.HTTPError as e:
+            out["self_registration"] = f"unreachable: {e}"
+    else:
+        out["self_registration"] = "not offered"
+    return out
 
 
 def access_token(http: httpx.Client, store: TokenStore) -> str | None:

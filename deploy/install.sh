@@ -189,6 +189,9 @@ collect() {
     [ -n "$(getenv $be HEADSET_MCP_URL)" ] || setenv $be HEADSET_MCP_URL "https://mcp.headset.io"
     ask $be HEADSET_MCP_URL     "MCP endpoint URL"
     ask $be HEADSET_MCP_TOKEN   "Static token (blank = browser sign-in)" secret
+    echo "  If Headset issued an OAuth client for this server, enter it; blank tries self-registration."
+    ask $be HEADSET_OAUTH_CLIENT_ID     "OAuth client id"
+    ask $be HEADSET_OAUTH_CLIENT_SECRET "OAuth client secret (if any)" secret
   else
     echo "Headset: not configured (run with AURORA_HEADSET=1 when cleared); the sync reports it as skipped"
   fi
