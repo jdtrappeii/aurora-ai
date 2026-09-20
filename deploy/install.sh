@@ -123,7 +123,8 @@ fetch_code() {
     before="$(git -C "$HOME_DIR" rev-parse HEAD)"
     git -C "$HOME_DIR" fetch --quiet origin "$BRANCH"
     git -C "$HOME_DIR" checkout --quiet "$BRANCH"
-    git -C "$HOME_DIR" pull --ff-only --quiet origin "$BRANCH"
+    # a deploy checkout carries no local commits: track the remote exactly, even if its history was rewritten
+    git -C "$HOME_DIR" reset --hard --quiet "origin/$BRANCH"
     after="$(git -C "$HOME_DIR" rev-parse HEAD)"
     if [ "$before" != "$after" ] && [ "${AURORA_REEXEC:-0}" != "1" ]; then
       warn "Installer updated ($(git -C "$HOME_DIR" log --oneline -1 | cut -c1-60)); restarting with the new version."
