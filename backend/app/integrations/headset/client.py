@@ -15,6 +15,7 @@ Tool results come back as JSON text inside `result.content[0].text` (or as
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -73,7 +74,7 @@ class McpHeadsetClient:
 
     PROTOCOL_VERSION = "2025-06-18"
 
-    def __init__(self, url: str, token: str = "", timeout: float = 60.0, client: httpx.Client | None = None,
+    def __init__(self, url: str, token: str = "", timeout: float = 180.0, client: httpx.Client | None = None,
                  token_provider=None):
         if not url:
             raise HeadsetError("HEADSET_MCP_URL is not set")
@@ -96,8 +97,26 @@ class McpHeadsetClient:
             h["Mcp-Session-Id"] = self._session_id
         return h
 
+    RETRIES = 3
+
     def _post(self, body: dict) -> dict | None:
-        resp = self._http.post(self.url, headers=self._headers(), content=json.dumps(body))
+        # Headset's heavier reports can take a minute or more; a slow or reset
+        # connection is retried with a growing pause rather than failing the sync.
+        last: Exception | None = None
+        for attempt in range(self.RETRIES):
+            try:
+                resp = self._http.post(self.url, headers=self._headers(), content=json.dumps(body))
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                last = e
+                time.sleep(5 * (attempt + 1))
+                continue
+            if resp.status_code in (429, 502, 503, 504) and attempt < self.RETRIES - 1:
+                retry_after = resp.headers.get("Retry-After")
+                time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else 10 * (attempt + 1))
+                continue
+            break
+        else:
+            raise HeadsetError(f"MCP request failed after {self.RETRIES} attempts: {last}")
         if resp.status_code >= 400:
             raise HeadsetError(f"MCP HTTP {resp.status_code}: {resp.text[:500]}")
         sid = resp.headers.get("Mcp-Session-Id")
@@ -188,7 +207,7 @@ def client_from_settings() -> McpHeadsetClient:
     if settings.headset_mcp_token:
         return McpHeadsetClient(settings.headset_mcp_url, settings.headset_mcp_token)
     store = TokenStore(oauth_store_path())
-    http = httpx.Client(timeout=60.0)
+    http = httpx.Client(timeout=180.0)
     if not store.status().get("logged_in"):
         raise HeadsetError("no Headset credential: set HEADSET_MCP_TOKEN or run `python -m app.cli headset-login`")
     return McpHeadsetClient(settings.headset_mcp_url, "", client=http, token_provider=lambda: access_token(http, store))

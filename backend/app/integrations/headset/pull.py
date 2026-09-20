@@ -52,7 +52,8 @@ class SyncReport:
             "results": [r.to_dict() for r in self.results],
             "warnings": self.warnings,
             "reconciliation_mismatches": [r for r in self.reconciliation if r["coverage"] == "mismatch"],
-            "reconciliation_missing": [r["store"] + " " + r["date"] for r in self.reconciliation if r["coverage"] == "missing"],
+            "reconciliation_missing_count": sum(1 for r in self.reconciliation if r["coverage"] == "missing"),
+            "reconciliation_missing_sample": [r["store"] + " " + r["date"] for r in self.reconciliation if r["coverage"] == "missing"][:10],
             "reconciled_days": len(self.reconciliation),
         }
 
