@@ -395,12 +395,18 @@ only honours documents it has allow-listed: a document you publish yourself
    Aurora's store (`/data/headset/oauth.json`, 0600) when it is newer than the
    one Aurora holds, prints how long it is good for, and with `--sync` pulls
    the trailing days. The token lasts about a day and carries no refresh
-   token, so the browser step in Claude Code repeats daily; the script is safe
-   to run from cron every hour so the import happens the moment you re-sign:
+   token, so the browser step repeats daily. `deploy/headset-signin.sh` makes
+   that one command: it opens Claude Code for the Authenticate step and runs
+   the import the moment Claude Code closes; the nightly sync (4am Eastern by
+   default) then uses that token. To be reminded at login, add to `~/.bashrc`:
 
+   ```bash
+   [ -x ~/aurora/deploy/headset-renew.sh ] && bash ~/aurora/deploy/headset-renew.sh 2>&1 | tail -1
    ```
-   0 * * * *  bash $HOME/aurora/deploy/headset-renew.sh --quiet --sync >> $HOME/aurora/renew.log 2>&1
-   ```
+
+   If you would rather not sign in by hand each day, an hourly cron line
+   imports whenever a fresh token appears:
+   `0 * * * * bash $HOME/aurora/deploy/headset-renew.sh --quiet --sync >> $HOME/aurora/renew.log 2>&1`
 
 `headset-status` reports whether the server is signed in and for how long. If
 Headset ever allow-lists your fork's document (`https://<owner>.github.io/
